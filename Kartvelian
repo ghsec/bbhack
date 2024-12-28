@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# Define directories
+PAYLOADS_DIR="./payloads"
+REPLAY_PROXY="http://127.0.0.1:8080"
+MODS_DIR="./mods"
+LOG_DIR="./logs"
+REPORT_FILE="./vulnerabilities_report.txt"
+RATE_LIMIT=100
+AGENT="User-Agent: Kartvelian 0.1"
+
+# Common ffuf options
+COMMON_OPTS="-r -mode sniper -replay-proxy $REPLAY_PROXY -rate $RATE_LIMIT"
+
+# Ensure required directories exist
+if [ ! -d "$PAYLOADS_DIR" ]; then
+    echo -e "\033[31m[ERROR]\033[0m Payloads directory not found: $PAYLOADS_DIR"
+    exit 1
+fi
+
+if [ ! -d "$MODS_DIR" ]; then
+    echo -e "\033[31m[ERROR]\033[0m Mods directory not found: $MODS_DIR"
+    exit 1
+fi
+
+mkdir -p "$LOG_DIR"
+
+# Initialize report file
+echo "Vulnerability Scan Report" > "$REPORT_FILE"
+echo "=========================" >> "$REPORT_FILE"
+
+# Define scan types and their corresponding payloads and matchers
+declare -A SCANS=(
+#    ["XSS"]="xss.txt injectx<injectx"
+#    ["Blind_XSS"]="Blind_XSS.txt"
+    ["CRLF"]="crlf.txt (?m)^[Ss]et-[Cc]ookie: crlf=injection"
+    ["Linux_LFI"]="lfiLinux.txt [a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:"
+    ["Windows_LFI"]="lfiWindows.txt for 16-bit app support|\[fonts\]"
+    ["Blind_RCE_Windows"]="Blind_RCE_Windows.txt (?m)<html>(<head></head>)?<body>[a-z0-9]+</body>"
+    ["Blind_RCE_Linux"]="Blind_RCE_Linux.txt (?m)<html>(<head></head>)?<body>[a-z0-9]+</body>"
+    ["Blind_XXE"]="Blind_XXE.txt (?m)<html>(<head></head>)?<body>[a-z0-9]+</body>"
+    ["PHP_Injection"]="phpRCE.txt [a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:|(uid|gid|groups)=[0-9]{1,}\("
+    ["RCE_Linux"]="RCE_Linux.txt (uid|gid|groups)=[0-9]+\(.+?\)|[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:"
+    ["RCE_Windows"]="RCE_Windows.txt Windows\sIP\sConfiguration|Ethernet\s[0-9]?:|Microsoft\sWindows\s\[Versi"
+    ["RCE_Python"]="RCE-Python.txt [a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:"
+    ["SQLi_Collaborator"]="SQLi_Collaborator.txt"
+    ["SQLi_Time_Based"]="SQLi-Time-Based.txt <20000"
+    ["SSRF"]="SSRF.txt [a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:|(?m)<html>(<head></head>)?<body>[a-z0-9]+</body>"
+    ["SSTI"]="SSTI.txt 158961337"
+)
+
+# Calculate the total number of scan tasks
+total_tasks=0
+for mod_file in "$MODS_DIR"/*; do
+    if [ -f "$mod_file" ]; then
+        for scan in "${!SCANS[@]}"; do
+            ((total_tasks++))
+        done
+    fi
+done
+
+current_task=0
+
+# Function to display a clean progress bar
+show_progress() {
+    local progress=$1
+    local total=$2
+    local percent=$(( (progress * 100) / total ))
+    local filled=$(( percent / 2 ))
+    local unfilled=$(( 50 - filled ))
+
+    # Use carriage return \r to overwrite the line in the console
+    printf "\rProgress: ["
+    for ((i=0; i<filled; i++)); do printf "="; done
+    for ((i=0; i<unfilled; i++)); do printf " "; done
+    printf "] %3d%% (%d/%d)" "$percent" "$progress" "$total"
+}
+
+# Function to perform scan and detect vulnerabilities
+do_scan() {
+    local file=$1
+    local scan_type=$2
+    local payload=$(echo ${SCANS[$scan_type]} | cut -d' ' -f1)
+    local matcher=$(echo ${SCANS[$scan_type]} | cut -d' ' -f2-)
+    local log_file="$LOG_DIR/${scan_type}_$(basename "$file").log"
+
+    echo -e "\n\033[34m[INFO]\033[0m Starting \033[1m$scan_type\033[0m scan on \033[1m$file\033[0m..."
+
+    if [ -n "$matcher" ]; then
+        ffuf -request "$file" -w "$PAYLOADS_DIR/$payload" -mr "$matcher" $COMMON_OPTS $AGENT &> "$log_file"
+    else
+        ffuf -request "$file" -w "$PAYLOADS_DIR/$payload" $COMMON_OPTS $AGENT &> "$log_file"
+    fi
+
+    # Search for the matcher pattern but exclude metadata lines
+    if grep -E 'Status: [0-9]+' "$log_file" | grep -q .; then
+        echo -e "\033[31m[ALERT]\033[0m Vulnerability detected: \033[1m$scan_type\033[0m in \033[1m$file\033[0m" | tee -a "$REPORT_FILE"
+    fi
+
+
+    ((current_task++))
+    show_progress "$current_task" "$total_tasks"
+}
+
+# Loop through each file and scan type
+for mod_file in "$MODS_DIR"/*; do
+    if [ -f "$mod_file" ]; then
+        for scan in "${!SCANS[@]}"; do
+            do_scan "$mod_file" "$scan"
+        done
+    fi
+done
+
+# Final completion message
+echo -e "\n\033[34m[INFO]\033[0m Scan completed. Detailed logs are in \033[1m$LOG_DIR\033[0m." | tee -a "$REPORT_FILE"
+echo -e "\033[34m[INFO]\033[0m Report of detected vulnerabilities is saved in \033[1m$REPORT_FILE\033[0m."
+

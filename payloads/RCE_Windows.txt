@@ -1,0 +1,20 @@
+|ipconfig 
+||ipconfig 
+;ipconfig 
+&ipconfig 
+&&ipconfig 
+|i'p'c'o'n'f'i'g'
+||i'p'c'o'n'f'i'g'
+;i'p'c'o'n'f'i'g'
+&i'p'c'o'n'f'i'g'
+&&i'p'c'o'n'f'i'g'
+|i"p"c"o"n"f"i"g"
+||i"p"c"o"n"f"i"g"
+;i"p"c"o"n"f"i"g"
+&i"p"c"o"n"f"i"g"
+&&i"p"c"o"n"f"i"g"
+ |ver 
+||ver 
+;ver 
+&ver 
+&&ver

