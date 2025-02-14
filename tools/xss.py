@@ -11,7 +11,14 @@ init(autoreset=True)
 
 # Configuration
 XSS_PAYLOADS = [
-    '">injectx<'
+    "injectx<injectx",
+    "injectx%3Cinjectx",
+    "injectx%u003cinjectx",
+    "injectx%26lt;injectx",
+    "injectx%26%2360;injectx",
+    "injectx%26%23x3c;injectx",
+    "aW5qZWN0eDxpbmplY3R4",
+    "injectx%253cinjectx"
 ]
 XSS_CONTENT_TYPES = [
     "text/html",
@@ -174,7 +181,7 @@ async def test_xss(session, url, method, headers=None, data=None):
 
         if any(ct in content_type for ct in XSS_CONTENT_TYPES):
             for payload in XSS_PAYLOADS:
-                if payload in response.text:
+                if "injectx<injectx" in response.text:
                     return {
                         "url": url,
                         "method": method,
