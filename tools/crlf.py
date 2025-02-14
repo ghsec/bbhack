@@ -35,9 +35,9 @@ DEFAULT_TIMEOUT = 50
 # Concurrency limit for async tasks
 SEMAPHORE_LIMIT = 5  # You can adjust this value based on your system's capacity
 
-async def inject_CRLF_payload(session, request, semaphore):
+async def inject_crlf_payload(session, request, semaphore):
     """
-    Inject CRLF payloads into the request and test for vulnerabilities, including path-based CRLF.
+    Inject crlfpayloads into the request and test for vulnerabilities, including path-based crlf.
     
     Args:
         session: The HTTPX session.
@@ -63,16 +63,18 @@ async def inject_CRLF_payload(session, request, semaphore):
                 for payload in CRLF_PAYLOADS:
                     modified_params = query_params.copy()
                     modified_params[param] = [payload for value in values]
-                    new_query_string = urlencode(modified_params, doseq=True)
+                    new_query_string = "&".join(
+                        f"{param}={value}" for param, values in modified_params.items() for value in values
+                    )
                     new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
 
-                    result = await test_CRLF(session, new_url, method, headers=headers)
-                    if result and result["CRLF_detected"]:
+                    result = await test_crlf(session, new_url, method, headers=headers)
+                    if result and result["crlf_detected"]:
                         result["query_params"] = query_params  # Original query parameters
                         result["modified_query_params"] = modified_params  # Modified query parameters
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Break after detecting CRLF and move to the next request
+                        break  # Break after detecting crlfand move to the next request
 
         # Test POST requests with payloads
         elif method == "POST" and body:
@@ -96,18 +98,18 @@ async def inject_CRLF_payload(session, request, semaphore):
 
                 # Send the request with the modified body
                 try:
-                    result = await test_CRLF(session, url, method, headers=headers, data=modified_body)
-                    if result and result["CRLF_detected"]:
+                    result = await test_crlf(session, url, method, headers=headers, data=modified_body)
+                    if result and result["crlf_detected"]:
                         result["post_data"] = body  # Original POST data
                         result["modified_post_data"] = modified_body  # Modified POST data with payload
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Break after detecting CRLF and move to the next request
+                        break  # Break after detecting crlfand move to the next request
                 except Exception as e:
-                    logging.error(f"Error while testing CRLF payload: {e}")
+                    logging.error(f"Error while testing crlfpayload: {e}")
                     continue
 
-        # Path-Based CRLF Detection (only modify path)
+        # Path-Based crlfDetection (only modify path)
         if method == "GET":
             path_parts = parsed_url.path.split('/')
 
@@ -121,22 +123,22 @@ async def inject_CRLF_payload(session, request, semaphore):
 
                         # Send the request with the modified path
                         try:
-                            result = await test_CRLF(session, new_url, method, headers=headers)
-                            if result and result["CRLF_detected"]:
+                            result = await test_crlf(session, new_url, method, headers=headers)
+                            if result and result["crlf_detected"]:
                                 result["path"] = parsed_url.path  # Original path
                                 result["modified_path"] = modified_path  # Modified path with payload
                                 result["payload"] = payload  # The payload used
                                 results.append(result)
-                                break  # Break after detecting CRLF and move to the next request
+                                break  # Break after detecting crlfand move to the next request
                         except Exception as e:
-                            logging.error(f"Error while testing path-based CRLF payload: {e}")
+                            logging.error(f"Error while testing path-based crlfpayload: {e}")
                         path_parts[i] = part  # Reset path segment after testing
 
     return results
 
-async def test_CRLF(session, url, method, headers=None, data=None):
+async def test_crlf(session, url, method, headers=None, data=None):
     """
-    Send an HTTP request and test for CRLF vulnerabilities.
+    Send an HTTP request and test for crlfvulnerabilities.
     
     Args:
         session: The HTTPX session.
@@ -146,29 +148,25 @@ async def test_CRLF(session, url, method, headers=None, data=None):
         data: Optional data for POST requests.
     
     Returns:
-        A dictionary with the test results or None if no CRLF is detected.
+        A dictionary with the test results or None if no crlfis detected.
     """
     try:
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
         for payload in CRLF_PAYLOADS:
-            if "Set-Cookie" in response.headers:
-                setcookie_header = response.headers["Set-Cookie"]
-                crlf_pattern = r'crlf=injection'
-                if re.search(location_pattern, location_header):
-                    return {
-                        "url": url,
-                        "method": method,
-                        "status_code": response.status_code,
-                        "CRLF_detected": True,
-                        "payload": setcookie_header,
-                        "detected_in": "header"
-                    }
+            if re.search(r'(?m)^(?:Set-Cookie\s*?:(?:\s*?|.*?;\s*?))(crlf=injection)(?:\s*?)(?:$|;)', response.text):  # Check for passwd file
+                return {
+                    "url": url,
+                    "method": method,
+                    "status_code": response.status_code,
+                    "crlf_detected": True,
+                    "payload": payload
+                }
         return {
             "url": url,
             "method": method,
             "status_code": response.status_code,
-            "CRLF_detected": False
+            "crlf_detected": False
         }
     except httpx.RequestError as e:
         logging.error(f"Error testing {url} with payload: {data}. Exception: {e}")
@@ -176,7 +174,7 @@ async def test_CRLF(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "CRLF_detected": False,
+            "crlf_detected": False,
             "error": str(e)
         }
     except Exception as e:
@@ -185,23 +183,23 @@ async def test_CRLF(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "CRLF_detected": False,
+            "crlf_detected": False,
             "error": str(e)
         }
 
 async def process_requests(requests):
     """
-    Process all requests from requests.json and check for CRLF vulnerabilities.
+    Process all requests from requests.json and check for crlfvulnerabilities.
     
     Args:
         requests: A list of request dictionaries.
     
     Returns:
-        A list of results from the CRLF tests.
+        A list of results from the crlftests.
     """
     semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)  # Limit concurrent tasks
     async with httpx.AsyncClient() as session:
-        tasks = [inject_CRLF_payload(session, request, semaphore) for request in requests]
+        tasks = [inject_crlf_payload(session, request, semaphore) for request in requests]
         results = await asyncio.gather(*tasks)
         return [item for sublist in results for item in sublist]  # Flatten the results
 
@@ -223,7 +221,7 @@ def save_results(results, output_file):
     Save results to a JSON file.
     
     Args:
-        results: List of results from the CRLF tests.
+        results: List of results from the crlftests.
         output_file: Path to the output file.
     """
     with open(output_file, 'w') as f:
@@ -242,29 +240,29 @@ def print_results(results):
     Print results in a formatted table.
     
     Args:
-        results: List of results from the CRLF tests.
+        results: List of results from the crlftests.
     """
-    # Filter results to only show detected CRLF vulnerabilities
-    CRLF_results = [result for result in results if result["CRLF_detected"]]
+    # Filter results to only show detected crlfvulnerabilities
+    crlf_results = [result for result in results if result["crlf_detected"]]
 
-    if not CRLF_results:
-        print(Fore.YELLOW + "No CRLF vulnerabilities detected.")
+    if not crlf_results:
+        print(Fore.YELLOW + "No crlfvulnerabilities detected.")
         return
 
     table_data = []
-    for result in CRLF_results:
+    for result in crlf_results:
         table_data.append([
             result["url"],
             result["method"],
             result["status_code"],
-            Fore.RED + "CRLF Detected"
+            Fore.RED + "crlfDetected"
         ])
-    headers = ["URL", "Method", "Status Code", "CRLF Detection"]
+    headers = ["URL", "Method", "Status Code", "crlfDetection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))
 
 async def main(input_file, output_file):
     """
-    Main function to orchestrate the CRLF detection process.
+    Main function to orchestrate the crlfdetection process.
     
     Args:
         input_file: Path to the input JSON file.
@@ -274,11 +272,11 @@ async def main(input_file, output_file):
     logging.info(f"Loaded {len(requests)} requests for testing.")
 
     results = await process_requests(requests)
-    # Filter results to only include CRLF detections
-    CRLF_results = [result for result in results if result["CRLF_detected"]]
+    # Filter results to only include crlfdetections
+    crlf_results = [result for result in results if result["crlf_detected"]]
 
-    print_results(CRLF_results)
-    save_results(CRLF_results, output_file)
+    print_results(crlf_results)
+    save_results(crlf_results, output_file)
     signal.signal(signal.SIGINT, save_output_on_exit)
 
 if __name__ == "__main__":
@@ -290,9 +288,9 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, save_output_on_exit)
 
     # Command-line argument parsing
-    parser = argparse.ArgumentParser(description="CRLF Detection Tool")
+    parser = argparse.ArgumentParser(description="crlfDetection Tool")
     parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="results_CRLF.json", help="Output file for results (default: results_CRLF.json)")
+    parser.add_argument("--output", default="results_crlf_linux.json", help="Output file for results (default: results_crlf_linux.json)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 

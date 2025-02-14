@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Directory to save results
+RESULTS_DIR="ghauriResult"
+
+# Parse command-line arguments
+while getopts "f:" opt; do
+  case $opt in
+    f)
+      REQUESTS_DIR="$OPTARG"
+      ;;
+    *)
+      echo "Usage: $0 -f <requests_directory>"
+      exit 1
+      ;;
+  esac
+done
+
+# Check if the requests directory is provided and exists
+if [ -z "$REQUESTS_DIR" ]; then
+  echo "Error: Requests directory not specified. Use -f to provide the directory."
+  exit 1
+fi
+
+if [ ! -d "$REQUESTS_DIR" ]; then
+  echo "Directory '$REQUESTS_DIR' does not exist. Please create it and add your request files."
+  exit 1
+fi
+
+# Create results directory if it doesn't exist
+if [ ! -d "$RESULTS_DIR" ]; then
+  mkdir "$RESULTS_DIR"
+fi
+
+# Loop through all files in the directory
+for req_file in "$REQUESTS_DIR"/*; do
+  # Check if the file exists and is a regular file
+  if [ -f "$req_file" ]; then
+    echo "Testing request file: $req_file"
+    # Run Ghauri with the request file and save the result
+    ghauri -r "$req_file" --batch -v 3 -b > "$RESULTS_DIR/$(basename "$req_file").log"
+
+    # Check if SQL injection was detected (assume ghauri indicates it in the output)
+    if grep -qi "retrieved: " "$RESULTS_DIR/$(basename "$req_file").log"; then
+      echo "SQL injection detected in $req_file. Results saved to $RESULTS_DIR/$(basename "$req_file").log."
+    else
+      echo "No SQL injection detected in $req_file."
+      # Optionally remove the log file if no injection was found
+      rm "$RESULTS_DIR/$(basename "$req_file").log"
+    fi
+  else
+    echo "$req_file is not a regular file, skipping."
+  fi
+done
+
+echo "All request files have been processed."
+

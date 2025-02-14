@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 -i INPUT_DIR -o OUTPUT_DIR"
+    echo "  -i INPUT_DIR   Directory containing raw request files (e.g., raw_requests/)"
+    echo "  -o OUTPUT_DIR  Directory to save the results (e.g., results/)"
+    exit 1
+}
+
+# Parse command-line arguments
+while getopts ":i:o:" opt; do
+    case $opt in
+        i) INPUT_DIR="$OPTARG" ;;
+        o) OUTPUT_DIR="$OPTARG" ;;
+        *) usage ;;
+    esac
+done
+
+# Ensure both INPUT_DIR and OUTPUT_DIR are provided
+if [ -z "$INPUT_DIR" ] || [ -z "$OUTPUT_DIR" ]; then
+    usage
+fi
+
+# Create the results directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# Iterate over each raw request file in the input directory
+for file in "$INPUT_DIR"/*.txt; do
+    # Extract the base name of the file for the result output
+    base_name=$(basename "$file" .txt)
+    output_file="$OUTPUT_DIR/${base_name}_result.txt"
+
+    echo "Scanning $file with Dalfox..."
+    
+    # Run Dalfox with --only-poc to stop after the first detection
+    dalfox file --rawdata "$file" --only-poc 'r,v' --skip-mining-all > "$output_file"
+
+    echo "Results saved to $output_file"
+done
+
+echo "All files scanned. Check the '$OUTPUT_DIR' directory for results."

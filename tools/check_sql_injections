@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Check if the folder path is provided using -f flag
+while getopts "f:" opt; do
+  case ${opt} in
+    f)
+      FOLDER_PATH="$OPTARG"
+      ;;
+    *)
+      echo "Usage: $0 -f <folder_path>"
+      exit 1
+      ;;
+  esac
+done
+
+# If folder path is not provided, display usage and exit
+if [ -z "$FOLDER_PATH" ]; then
+  echo "Error: Folder path is required. Usage: $0 -f <folder_path>"
+  exit 1
+fi
+
+# Check if the folder exists
+if [ ! -d "$FOLDER_PATH" ]; then
+  echo "Error: Folder '$FOLDER_PATH' does not exist. Create it using: mkdir -p '$FOLDER_PATH'"
+  exit 1
+fi
+
+# Check if there are any .txt files in the folder
+shopt -s nullglob  # Prevents empty *.txt expansion
+txt_files=("$FOLDER_PATH"/*.txt)
+if [ ${#txt_files[@]} -eq 0 ]; then
+  echo "No .txt files found in '$FOLDER_PATH'"
+  exit 1
+fi
+
+# Define result file location (same directory as script)
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+RESULT_FILE="$SCRIPT_DIR/result.txt"
+
+# Clear previous results (optional)
+> "$RESULT_FILE"
+
+# Loop through each .txt file in the folder
+for file in "${txt_files[@]}"; do
+    echo -e "\n=== Testing: $file ===\n" | tee -a "$RESULT_FILE"
+    
+    python3 boolean_blind_sqli_tester.py -r "$file" | tee -a "$RESULT_FILE"
+done
+
+echo "Processing complete. Results saved to $RESULT_FILE"
+

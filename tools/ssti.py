@@ -61,8 +61,10 @@ async def inject_SSTI_payload(session, request, semaphore):
             for param, values in query_params.items():
                 for payload in SSTI_PAYLOADS:
                     modified_params = query_params.copy()
-                    modified_params[param] = [value + payload for value in values]
-                    new_query_string = urlencode(modified_params, doseq=True)
+                    modified_params[param] = [payload for value in values]
+                    new_query_string = "&".join(
+                        f"{param}={value}" for param, values in modified_params.items() for value in values
+                    )
                     new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
 
                     result = await test_SSTI(session, new_url, method, headers=headers)
