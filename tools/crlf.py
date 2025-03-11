@@ -246,7 +246,7 @@ def print_results(results):
     crlf_results = [result for result in results if result["crlf_detected"]]
 
     if not crlf_results:
-        print(Fore.YELLOW + "No crlfvulnerabilities detected.")
+        print(Fore.YELLOW + "No crlf vulnerabilities detected.")
         return
 
     table_data = []
@@ -255,7 +255,7 @@ def print_results(results):
             result["url"],
             result["method"],
             result["status_code"],
-            Fore.RED + "crlfDetected"
+            Fore.RED + "crlf Detected"
         ])
     headers = ["URL", "Method", "Status Code", "crlfDetection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))

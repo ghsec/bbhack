@@ -12,22 +12,22 @@ init(autoreset=True)
 
 # Configuration
 SSTI_PAYLOADS = [
-    "nexploit${73*17}nexploit",
-    "nexploit{{73*17}}nexploit",
-    "nexploit{{=73*17}}nexploit",
-    "nexploit%2373*17nexploit",
-    "nexploit[[73*17]]nexploit",
-    "nexploit%{73*17}nexploit",
-    "%23set ($a=73*17) nexploit${a}nexploit",
-    "nexploit<%= 73*17 %>nexploit",
-    "nexploit= 73*17nexploit",
-    "nexploit__${73*17}__nexploit",
-    "nex99ploit{{40|add:9}}nex99ploit",
-    "nex99ploit{20*2}{*commentedout*}{3*3}nex99ploit",
-    'nex99ploit${"59".toString().replace("5", "4")}nex99ploit',
-    'nex99ploit<%23assign osnu7="4"><%23assign i5437="9">${osnu7}${i5437}nex99ploit',
-    "nex99ploit{{4}}{%23commentedout%23}{{9}}nex99ploit",
-    '${"nex99ploit".join("1234")}'
+    "injectx${73*17}injectx",
+    "injectx{{73*17}}injectx",
+    "injectx{{=73*17}}injectx",
+    "injectx%2373*17injectx",
+    "injectx[[73*17]]injectx",
+    "injectx%{73*17}injectx",
+    "%23set ($a=73*17) injectx${a}injectx",
+    "injectx<%= 73*17 %>injectx",
+    "injectx= 73*17injectx",
+    "injectx__${73*17}__injectx",
+    "injectx{{40|add:9}}injectx",
+    "injectx{20*2}{*commentedout*}{3*3}injectx",
+    'injectx${"59".toString().replace("5", "4")}injectx',
+    'injectx<%23assign osnu7="4"><%23assign i5437="9">${osnu7}${i5437}injectx',
+    "injectx{{4}}{%23commentedout%23}{{9}}injectx",
+    '${"injectx".join("1234")}'
 ]
 DEFAULT_TIMEOUT = 50
 
@@ -153,7 +153,7 @@ async def test_SSTI(session, url, method, headers=None, data=None):
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
         for payload in SSTI_PAYLOADS:
-            if re.search(r'nexploit1241nexploit|nex99ploit49nex99ploit|nex99ploit409nex99ploit|nex99ploit49nex99ploit|nex99ploit1234', response.text):  # Check for passwd file
+            if re.search(r'injectx1241injectx|injectx49injectx|injectx409injectx|injectx49injectx|injectx1234', response.text):  # Check for passwd file
                 return {
                     "url": url,
                     "method": method,
