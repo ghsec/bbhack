@@ -110,7 +110,7 @@ async def inject_CRLF_payload(session, request, semaphore):
                     continue
 
         # Path-Based CRLF Detection (only modify path)
-        if method == "GET":
+        if method == "GET" or method == "POST":
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable

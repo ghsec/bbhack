@@ -132,7 +132,7 @@ async def inject_xss_payload(session, request, semaphore):
                     continue
 
         # Path-Based XSS Detection (only modify path)
-        if method == "GET":
+        if method == "GET" or method == "POST":
             # Modify path parameters with XSS payloads (Do NOT modify query or body here)
             path_parts = parsed_url.path.split('/')
 
