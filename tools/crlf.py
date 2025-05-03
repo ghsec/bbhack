@@ -118,7 +118,7 @@ async def inject_crlf_payload(session, request, semaphore):
                 if part:  # Only modify non-empty path segments
                     for payload in CRLF_PAYLOADS:
                         path_parts[i] = payload
-                        modified_path = '/'.join(path_parts)
+                        modified_path = '/'.join(path_parts[:i] + [payload])
                         new_url = urlparse(url)._replace(path=modified_path).geturl()
 
                         # Send the request with the modified path
@@ -154,7 +154,7 @@ async def test_crlf(session, url, method, headers=None, data=None):
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
         for payload in CRLF_PAYLOADS:
-            if re.search(r'(?m)^(?:Set-Cookie\s*?:(?:\s*?|.*?;\s*?))(crlf=injection)(?:\s*?)(?:$|;)', response.text):  # Check for passwd file
+            if re.search(r'(?m)^(?:Set-Cookie\s*?:(?:\s*?|.*?;\s*?))(crlf=injection)(?:\s*?)(?:$|;)', response.text):  # Check for CRLF payload in the header
                 return {
                     "url": url,
                     "method": method,

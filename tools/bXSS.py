@@ -141,7 +141,7 @@ async def inject_xss_payload(session, request, semaphore):
                 if part:  # Only modify non-empty path segments
                     for payload in XSS_PAYLOADS:
                         path_parts[i] = part + payload
-                        modified_path = '/'.join(path_parts)
+                        modified_path = '/'.join(path_parts[:i] + [payload])
                         new_url = urlparse(url)._replace(path=modified_path).geturl()
 
                         # Send the request with the modified path
@@ -319,7 +319,7 @@ if __name__ == "__main__":
     # Define a signal handler to save results on interrupt
     def save_output_on_exit(signal_num, frame):
         print("\nGracefully exiting and saving results...")
-        with open("output.json", "w") as f:
+        with open("result_bxss.json", "w") as f:
             json.dump(requests_data, f, indent=4)
         sys.exit(0)
 
@@ -329,7 +329,7 @@ if __name__ == "__main__":
     # Command-line argument parsing
     parser = argparse.ArgumentParser(description="XSS Detection Tool")
     parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="results.json", help="Output file for results (default: results.json)")
+    parser.add_argument("--output", default="result_bxss.json", help="Output file for results (default: result_bxss.json)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 

