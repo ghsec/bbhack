@@ -1,3 +1,4 @@
+import tempfile
 import time
 import json
 import logging
@@ -5,6 +6,8 @@ import re
 import random
 import string
 import secrets
+import os
+import shutil
 from urllib.parse import urljoin, urlparse
 from seleniumwire import webdriver
 from selenium.webdriver.common.by import By
@@ -19,36 +22,61 @@ from selenium.common.exceptions import (
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys  # Added import for Keys
+from selenium.webdriver.common.keys import Keys
 import argparse
 import signal
 import sys
-
+import atexit
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-
 # Global variable to store requests data
 requests_data = []
 
+def cleanup_temp_dirs(temp_dirs):
+    """Clean up temporary directories."""
+    for temp_dir in temp_dirs:
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception as e:
+            logging.warning(f"Failed to clean up temp directory {temp_dir}: {e}")
+
+# List to track all temporary directories
+temp_dirs = []
+atexit.register(cleanup_temp_dirs, temp_dirs)
 
 def initialize_driver():
-    chrome_options = Options()
-    # Comment out the headless mode for debugging
-    # chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--window-size=1920x1080")
-    return webdriver.Chrome(options=chrome_options)
+    """Initialize Chrome WebDriver with proper options and cleanup handling."""
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.binary_location = "/opt/google/chrome/google-chrome"
 
+    # Essential options for headless and stability
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--window-size=1920,1080')
+
+    # Create a unique temporary directory for this session
+    temp_dir = tempfile.mkdtemp(prefix='chrome_')
+    user_data_dir = os.path.join(temp_dir, 'profile')
+    chrome_options.add_argument(f'--user-data-dir={user_data_dir}')
+    temp_dirs.append(temp_dir)  # Track for cleanup
+
+    try:
+        driver = webdriver.Chrome(options=chrome_options)
+        return driver
+    except Exception as e:
+        cleanup_temp_dirs([temp_dir])
+        logging.error(f"Failed to initialize WebDriver: {e}")
+        raise
 
 def is_in_scope(base_url, url):
     """Check if a URL is within the same domain as the base URL."""
     base_netloc = urlparse(base_url).netloc
     target_netloc = urlparse(url).netloc
     return base_netloc == target_netloc
-
 
 def safe_get(driver, url, retries=3, delay=2):
     """Navigate to a URL with retries and error handling."""
@@ -62,10 +90,9 @@ def safe_get(driver, url, retries=3, delay=2):
             return True
         except (WebDriverException, TimeoutException, NoSuchElementException, ElementNotInteractableException) as e:
             logging.warning(f"Failed to load {url}, retrying... ({attempt + 1}/{retries}) - Error: {e}")
-            time.sleep(random.uniform(delay, delay + 2))  # Random delay between retries
+            time.sleep(random.uniform(delay, delay + 2))
     logging.error(f"Failed to load {url} after {retries} attempts.")
     return False
-
 
 def login(driver, login_url, username, password):
     """Log in to a website using provided credentials."""
@@ -73,14 +100,14 @@ def login(driver, login_url, username, password):
     try:
         logging.info("Attempting to find the username field.")
         username_field = WebDriverWait(driver, 30).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "#email"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "body > div.content > form > table > tbody > tr:nth-child(1) > td:nth-child(2) > input[type=text]"))
         )
         username_field.clear()
         username_field.send_keys(username)
         logging.info("Username entered successfully.")
 
         logging.info("Attempting to find the password field.")
-        password_field = driver.find_element(By.CSS_SELECTOR, "#uid-5-input-container-input-id")
+        password_field = driver.find_element(By.CSS_SELECTOR, "body > div.content > form > table > tbody > tr:nth-child(2) > td:nth-child(2) > input[type=password]")
         password_field.clear()
         password_field.send_keys(password)
         logging.info("Password entered successfully.")
@@ -96,7 +123,6 @@ def login(driver, login_url, username, password):
     except Exception as e:
         logging.error(f"Login failed: {e}")
         raise
-
 
 def fill_random_inputs_and_submit(driver):
     """
@@ -151,19 +177,15 @@ def fill_random_inputs_and_submit(driver):
 
         for button in button_elements:
             try:
-                if button.is_displayed() and button.is_enabled():  # Ensure the button is visible and clickable 
-#                    button.click()
+                if button.is_displayed() and button.is_enabled():
+                    button.click()
                     logging.info("Clicked the button successfully.")
-                    break  # Stop once we click the first available button
-                    
-                    
+                    break
             except Exception as e:
                 logging.warning(f"Failed to click button: {e}")
                 
     except Exception as e:
         logging.error(f"Error while detecting or filling input fields: {e}")
-
-
 
 def capture_requests_for_page(driver, base_url, current_url, requests_data, visited_links, exclude_pattern):
     """Capture requests for a single page, ensuring all requests in scope are captured."""
@@ -191,20 +213,20 @@ def capture_requests_for_page(driver, base_url, current_url, requests_data, visi
                     "timestamp": time.time(),
                 })
 
-
 def crawl_and_capture_requests(base_url, output_file, max_depth, exclude_extensions, auth_required=False, login_url=None, username=None, password=None):
     """Crawl the website and capture HTTP requests."""
-    driver = initialize_driver()
-    visited_links = set()
-    links_to_visit = [(base_url, 0)]
-
-    # Regex to exclude extensions
-    exclude_pattern = re.compile(rf"(?i)\.({'|'.join(map(re.escape, exclude_extensions))})(?:\?|#|$)")
-
-    if auth_required:
-        login(driver, login_url, username, password)
-
+    driver = None
     try:
+        driver = initialize_driver()
+        visited_links = set()
+        links_to_visit = [(base_url, 0)]
+
+        # Regex to exclude extensions
+        exclude_pattern = re.compile(rf"(?i)\.({'|'.join(map(re.escape, exclude_extensions))})(?:\?|#|$)")
+
+        if auth_required:
+            login(driver, login_url, username, password)
+
         while links_to_visit:
             current_url, current_depth = links_to_visit.pop(0)
             if current_url in visited_links or current_depth > max_depth:
@@ -227,7 +249,7 @@ def crawl_and_capture_requests(base_url, output_file, max_depth, exclude_extensi
             for new_element in new_links:
                 try:
                     href = new_element.get_attribute("href")
-                    if href and is_in_scope(base_url, href):  # Only follow links in scope
+                    if href and is_in_scope(base_url, href):
                         absolute_url = urljoin(current_url, href)
                         if absolute_url not in visited_links:
                             links_to_visit.append((absolute_url, current_depth + 1))
@@ -239,8 +261,9 @@ def crawl_and_capture_requests(base_url, output_file, max_depth, exclude_extensi
             json.dump(requests_data, f, indent=4)
 
     finally:
-        driver.quit()
-
+        if driver:
+            driver.quit()
+        cleanup_temp_dirs(temp_dirs)
 
 def save_output_on_exit(sig, frame):
     """Function to save output gracefully when interrupted."""
@@ -249,7 +272,6 @@ def save_output_on_exit(sig, frame):
         json.dump(requests_data, f, indent=4)
     logging.info("Output saved. Exiting...")
     sys.exit(0)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Website crawler to capture HTTP requests.")
@@ -268,7 +290,6 @@ def main():
 
     # Start crawling and capturing
     crawl_and_capture_requests(args.target, args.output, args.depth, args.exclude, args.auth, args.login_url, args.username, args.password)
-
 
 if __name__ == "__main__":
     main()
