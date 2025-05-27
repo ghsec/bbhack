@@ -152,16 +152,16 @@ def fill_random_inputs_and_submit(driver):
         for button in button_elements:
             try:
                 if button.is_displayed() and button.is_enabled():  # Ensure the button is visible and clickable 
-#                    button.click()
+                    button.click()
                     logging.info("Clicked the button successfully.")
                     break  # Stop once we click the first available button
-                    
                     
             except Exception as e:
                 logging.warning(f"Failed to click button: {e}")
                 
     except Exception as e:
         logging.error(f"Error while detecting or filling input fields: {e}")
+
 
 
 
