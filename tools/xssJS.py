@@ -2,7 +2,6 @@ import json
 import logging
 import asyncio
 import httpx
-import re
 from urllib.parse import urlparse, urljoin, urlencode, parse_qs
 from tabulate import tabulate
 from colorama import init, Fore
@@ -11,41 +10,32 @@ from colorama import init, Fore
 init(autoreset=True)
 
 # Configuration
-LFI_PAYLOADS = [
-    "/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/windows/win.ini",
-    "..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c/windows/win.ini",
-    "/./././././././././././windows/win.ini",
-    "/../../../../../../../../../../../windows/win.ini",
-#    "/..\../..\../..\../..\../..\../..\../windows/win.ini",
-#    "/.\\./.\\./.\\./.\\./.\\./.\\./windows/win.ini",
-#    "..//..//..//..//..//windows//win.ini",
-#    "../../../../../../../../../../../../windows/win.ini",
-#    "../../windows/win.ini",
-#    "..\../..\../..\../..\../windows/win.ini",
-#    "..\../..\../windows/win.ini",
-#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini",
-#    "\..\..\..\..\..\..\..\..\..\..\windows\win.ini",
-#    "/../../../../../../../../../../../windows/win.ini%00",
-#    "../../../../../../../../../../../../windows/win.ini%00",
-#    "..\..\..\..\..\..\..\..\..\..\windows\win.ini%00",
-#    "/../../../../../../../../../../../windows/win.ini%00.html",
-#    "/../../../../../../../../../../../windows/win.ini%00.jpg",
-#    "..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../windows/win.ini",
-#    "../../../../../../../../windows/win.ini",
-#    "..\..\..\..\..\..\..\..\windows\win.ini",
-#    "c:\windows\win.ini",
-#    "c:/windows/win.ini",
-#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:/windows/win.ini",
-#    "php://filter/zlib.deflate/convert.base64-encode/resource=c:\windows\win.ini"
+XSS_PAYLOADS = [
+    '"injectx',
+    "'injectx"
 ]
-DEFAULT_TIMEOUT = 10
+XSS_CONTENT_TYPES = [
+    "text/html",
+    "application/xhtml+xml",
+    "application/xml",
+    "text/xml",
+    "image/svg+xml",
+    "text/xsl",
+    "application/vnd.wap.xhtml+xml",
+    "text/rdf",
+    "application/rdf+xml",
+    "application/mathml+xml",
+    "text/vtt",
+    "text/cache-manifest"
+]
+DEFAULT_TIMEOUT = 50
 
 # Concurrency limit for async tasks
 SEMAPHORE_LIMIT = 5  # You can adjust this value based on your system's capacity
 
-async def inject_lfi_payload(session, request, semaphore):
+async def inject_xss_payload(session, request, semaphore):
     """
-    Inject LFI payloads into the request and test for vulnerabilities, including path-based LFI.
+    Inject XSS payloads into the request and test for vulnerabilities, including path-based XSS.
     
     Args:
         session: The HTTPX session.
@@ -58,7 +48,7 @@ async def inject_lfi_payload(session, request, semaphore):
     results = []
     url = request["url"]
     method = request.get("method", "GET").upper()
-    headers = request.get("headers", {}).copy()
+    headers = request.get("headers", {}).copy()  # Copy headers to modify safely
     body = request.get("body")
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
@@ -68,7 +58,7 @@ async def inject_lfi_payload(session, request, semaphore):
         # Test GET requests with query parameters
         if method == "GET" and query_params:
             for param, values in query_params.items():
-                for payload in LFI_PAYLOADS:
+                for payload in XSS_PAYLOADS:
                     modified_params = query_params.copy()
                     modified_params[param] = [payload for value in values]
                     new_query_string = "&".join(
@@ -76,28 +66,45 @@ async def inject_lfi_payload(session, request, semaphore):
                     )
                     new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
 
-                    result = await test_lfi(session, new_url, method, headers=headers)
-                    if result and result["lfi_detected"]:
+                    result = await test_xss(session, new_url, method, headers=headers)
+                    if result and result["xss_detected"]:
+                        # **Capture query parameters in the result**
                         result["query_params"] = query_params  # Original query parameters
                         result["modified_query_params"] = modified_params  # Modified query parameters
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Break after detecting LFI and move to the next request
+                        break  # Stop testing further payloads for this parameter
 
         # Test POST requests with payloads
         elif method == "POST" and body:
-            for payload in LFI_PAYLOADS:
+            for payload in XSS_PAYLOADS:
                 if isinstance(body, str):
+                    # Replace payload in string bodies
                     modified_body = body + payload
                     logging.debug(f"Modified body size (str): {len(modified_body)}")
+                    
+                    # Check if the body exceeds a reasonable size
+                    if len(modified_body) > 2000:  # Adjust the limit as needed
+                        logging.debug(f"Skipping payload, body size too large: {len(modified_body)}")
+                        continue
+                    
+                    # Remove Content-Length to let HTTPX calculate it automatically
                     headers.pop("Content-Length", None)
                     headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
                 elif isinstance(body, dict):
+                    # Add payload to dictionary bodies
                     modified_body = {key: value + payload for key, value in body.items()}
                     body_str = json.dumps(modified_body)
                     logging.debug(f"Modified body size (dict): {len(body_str)}")
+                    
+                    # Check if the body exceeds a reasonable size
+                    if len(body_str) > 2000:  # Adjust the limit as needed
+                        logging.debug(f"Skipping payload, body size too large: {len(body_str)}")
+                        continue
+                    
+                    # Remove Content-Length to let HTTPX calculate it automatically
                     headers.pop("Content-Length", None)
-                    headers.pop("Transfer-Encoding", None)
+                    headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
                 else:
                     modified_body = body
 
@@ -106,47 +113,51 @@ async def inject_lfi_payload(session, request, semaphore):
 
                 # Send the request with the modified body
                 try:
-                    result = await test_lfi(session, url, method, headers=headers, data=modified_body)
-                    if result and result["lfi_detected"]:
+                    result = await test_xss(session, url, method, headers=headers, data=modified_body)
+                    if result and result["xss_detected"]:
+                        # **Capture POST data in the result**
                         result["post_data"] = body  # Original POST data
                         result["modified_post_data"] = modified_body  # Modified POST data with payload
                         result["payload"] = payload  # The payload used
                         results.append(result)
-                        break  # Break after detecting LFI and move to the next request
+                        break  # Stop testing further payloads
                 except Exception as e:
-                    logging.error(f"Error while testing LFI payload: {e}")
+                    logging.error(f"Error while testing XSS payload: {e}")
                     continue
 
-        # Path-Based LFI Detection (only modify path)
+        # Path-Based XSS Detection (only modify path)
         if method == "GET" or method == "POST":
+            # Modify path parameters with XSS payloads (Do NOT modify query or body here)
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable
             for i, part in enumerate(path_parts):
                 if part:  # Only modify non-empty path segments
-                    for payload in LFI_PAYLOADS:
+                    for payload in XSS_PAYLOADS:
                         path_parts[i] = part + payload
                         modified_path = '/'.join(path_parts[:i] + [payload])
                         new_url = urlparse(url)._replace(path=modified_path).geturl()
 
                         # Send the request with the modified path
                         try:
-                            result = await test_lfi(session, new_url, method, headers=headers)
-                            if result and result["lfi_detected"]:
+                            result = await test_xss(session, new_url, method, headers=headers)
+                            if result and result["xss_detected"]:
+                                # **Capture path-based XSS in the result**
                                 result["path"] = parsed_url.path  # Original path
                                 result["modified_path"] = modified_path  # Modified path with payload
                                 result["payload"] = payload  # The payload used
                                 results.append(result)
-                                break  # Break after detecting LFI and move to the next request
+                                break  # Stop testing further payloads for this path segment
                         except Exception as e:
-                            logging.error(f"Error while testing path-based LFI payload: {e}")
+                            logging.error(f"Error while testing path-based XSS payload: {e}")
                         path_parts[i] = part  # Reset path segment after testing
 
     return results
 
-async def test_lfi(session, url, method, headers=None, data=None):
+
+async def test_xss(session, url, method, headers=None, data=None):
     """
-    Send an HTTP request and test for LFI vulnerabilities.
+    Send an HTTP request and test for XSS vulnerabilities.
     
     Args:
         session: The HTTPX session.
@@ -156,25 +167,29 @@ async def test_lfi(session, url, method, headers=None, data=None):
         data: Optional data for POST requests.
     
     Returns:
-        A dictionary with the test results or None if no LFI is detected.
+        A dictionary with the test results or None if no reflection is detected.
     """
     try:
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
+        content_type = response.headers.get("Content-Type", "")
 
-        for payload in LFI_PAYLOADS:
-            if re.search(r'\[fonts\]', response.text):  # Check for win.ini file
-                return {
-                    "url": url,
-                    "method": method,
-                    "status_code": response.status_code,
-                    "lfi_detected": True,
-                    "payload": payload
-                }
+        if any(ct in content_type for ct in XSS_CONTENT_TYPES):
+            for payload in XSS_PAYLOADS:
+                if '""injectx' in response.text or "''injectx" in response.text:
+                    return {
+                        "url": url,
+                        "method": method,
+                        "status_code": response.status_code,
+                        "content_type": content_type,
+                        "xss_detected": True,
+                        "payload": payload
+                    }
         return {
             "url": url,
             "method": method,
             "status_code": response.status_code,
-            "lfi_detected": False
+            "content_type": content_type,
+            "xss_detected": False
         }
     except httpx.RequestError as e:
         logging.error(f"Error testing {url} with payload: {data}. Exception: {e}")
@@ -182,7 +197,8 @@ async def test_lfi(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "lfi_detected": False,
+            "content_type": "N/A",
+            "xss_detected": False,
             "error": str(e)
         }
     except Exception as e:
@@ -191,23 +207,24 @@ async def test_lfi(session, url, method, headers=None, data=None):
             "url": url,
             "method": method,
             "status_code": "Error",
-            "lfi_detected": False,
+            "content_type": "N/A",
+            "xss_detected": False,
             "error": str(e)
         }
 
 async def process_requests(requests):
     """
-    Process all requests from requests.json and check for LFI vulnerabilities.
+    Process all requests from requests.json and check for XSS vulnerabilities.
     
     Args:
         requests: A list of request dictionaries.
     
     Returns:
-        A list of results from the LFI tests.
+        A list of results from the XSS tests.
     """
     semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)  # Limit concurrent tasks
     async with httpx.AsyncClient() as session:
-        tasks = [inject_lfi_payload(session, request, semaphore) for request in requests]
+        tasks = [inject_xss_payload(session, request, semaphore) for request in requests]
         results = await asyncio.gather(*tasks)
         return [item for sublist in results for item in sublist]  # Flatten the results
 
@@ -229,12 +246,12 @@ def save_results(results, output_file):
     Save results to a JSON file.
     
     Args:
-        results: List of results from the LFI tests.
+        results: List of results from the XSS tests.
         output_file: Path to the output file.
     """
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=4)
-
+        
 def save_output_on_exit(sig, frame):
     """Function to save output gracefully when interrupted."""
     logging.info("Saving output before exit...")
@@ -248,29 +265,30 @@ def print_results(results):
     Print results in a formatted table.
     
     Args:
-        results: List of results from the LFI tests.
+        results: List of results from the XSS tests.
     """
-    # Filter results to only show detected LFI vulnerabilities
-    lfi_results = [result for result in results if result["lfi_detected"]]
+    # Filter results to only show detected XSS vulnerabilities
+    xss_results = [result for result in results if result["xss_detected"]]
 
-    if not lfi_results:
-        print(Fore.YELLOW + "No LFI vulnerabilities detected.")
+    if not xss_results:
+        print(Fore.YELLOW + "No XSS vulnerabilities detected.")
         return
 
     table_data = []
-    for result in lfi_results:
+    for result in xss_results:
         table_data.append([
             result["url"],
             result["method"],
             result["status_code"],
-            Fore.RED + "LFI Detected"
+            result["content_type"],
+            Fore.RED + "XSS Detected"
         ])
-    headers = ["URL", "Method", "Status Code", "LFI Detection"]
+    headers = ["URL", "Method", "Status Code", "Content Type", "XSS Detection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))
 
 async def main(input_file, output_file):
     """
-    Main function to orchestrate the LFI detection process.
+    Main function to orchestrate the XSS detection process.
     
     Args:
         input_file: Path to the input JSON file.
@@ -280,11 +298,11 @@ async def main(input_file, output_file):
     logging.info(f"Loaded {len(requests)} requests for testing.")
 
     results = await process_requests(requests)
-    # Filter results to only include LFI detections
-    lfi_results = [result for result in results if result["lfi_detected"]]
+    # Filter results to only include XSS detections
+    xss_results = [result for result in results if result["xss_detected"]]
 
-    print_results(lfi_results)
-    save_results(lfi_results, output_file)
+    print_results(xss_results)
+    save_results(xss_results, output_file)
     signal.signal(signal.SIGINT, save_output_on_exit)
 
 if __name__ == "__main__":
@@ -293,12 +311,19 @@ if __name__ == "__main__":
     import signal
 
     # Define a signal handler to save results on interrupt
+    def save_output_on_exit(signal_num, frame):
+        print("\nGracefully exiting and saving results...")
+        with open("output.json", "w") as f:
+            json.dump(requests_data, f, indent=4)
+        sys.exit(0)
+
+    # Add the signal handler for `Ctrl+C`
     signal.signal(signal.SIGINT, save_output_on_exit)
 
     # Command-line argument parsing
-    parser = argparse.ArgumentParser(description="LFI Detection Tool")
+    parser = argparse.ArgumentParser(description="XSS Detection Tool")
     parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="lfi_windows.json", help="Output file for results (default: lfi_windows.json)")
+    parser.add_argument("--output", default="results-xss.json", help="Output file for results (default: results-xss.json)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 
@@ -313,4 +338,3 @@ if __name__ == "__main__":
         asyncio.run(main(args.input, args.output))
     except KeyboardInterrupt:
         print("\nExecution interrupted by user.")
-

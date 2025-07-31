@@ -83,7 +83,7 @@ async def inject_osi_payload(session, request, semaphore):
                     body_str = json.dumps(modified_body)
                     logging.debug(f"Modified body size (dict): {len(body_str)}")
                     headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"
+                    headers.pop("Transfer-Encoding", None)
                 else:
                     modified_body = body
 

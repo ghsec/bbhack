@@ -73,14 +73,14 @@ def login(driver, login_url, username, password):
     try:
         logging.info("Attempting to find the username field.")
         username_field = WebDriverWait(driver, 30).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "#email"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "#root > div > div.card.card > div > form > input:nth-child(1)"))
         )
         username_field.clear()
         username_field.send_keys(username)
         logging.info("Username entered successfully.")
 
         logging.info("Attempting to find the password field.")
-        password_field = driver.find_element(By.CSS_SELECTOR, "#password")
+        password_field = driver.find_element(By.CSS_SELECTOR, "#root > div > div.card.card > div > form > input:nth-child(2)")
         password_field.clear()
         password_field.send_keys(password)
         logging.info("Password entered successfully.")

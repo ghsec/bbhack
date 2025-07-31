@@ -96,7 +96,7 @@ async def inject_xss_payload(session, request, semaphore):
                     
                     # Remove Content-Length to let HTTPX calculate it automatically
                     headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
+                    headers.pop("Transfer-Encoding", None)
                 elif isinstance(body, dict):
                     # Add payload to dictionary bodies
                     modified_body = {key: value + payload for key, value in body.items()}

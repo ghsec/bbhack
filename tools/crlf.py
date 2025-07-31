@@ -83,7 +83,7 @@ async def inject_crlf_payload(session, request, semaphore):
                     modified_body = body + payload
                     logging.debug(f"Modified body size (str): {len(modified_body)}")
                     headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
+                    headers.pop("Transfer-Encoding", None)
                 elif isinstance(body, dict):
                     modified_body = {key: payload for key, value in body.items()}
                     body_str = json.dumps(modified_body)

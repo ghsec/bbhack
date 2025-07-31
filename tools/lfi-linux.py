@@ -103,13 +103,13 @@ async def inject_lfi_payload(session, request, semaphore):
                     modified_body = body + payload
                     logging.debug(f"Modified body size (str): {len(modified_body)}")
                     headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
+                    headers.pop("Transfer-Encoding", None)
                 elif isinstance(body, dict):
                     modified_body = {key: value + payload for key, value in body.items()}
                     body_str = json.dumps(modified_body)
                     logging.debug(f"Modified body size (dict): {len(body_str)}")
                     headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"
+                    headers.pop("Transfer-Encoding", None)
                 else:
                     modified_body = body
 
