@@ -67,7 +67,7 @@ async def inject_XXE_payload(session, request, semaphore):
                         break  # Break after detecting XXE and move to the next request
 
         # Test POST requests with payloads
-        elif method == "POST" and body:
+        elif method in ("POST", "DELETE", "PATCH", "PUT") and body:
             for payload in XXE_PAYLOADS:
                 if isinstance(body, str):
                     modified_body = body + payload
@@ -100,7 +100,7 @@ async def inject_XXE_payload(session, request, semaphore):
                     continue
 
         # Path-Based XXE Detection (only modify path)
-        if method == "GET" or method == "POST":
+        if method in ("POST", "DELETE", "PATCH", "PUT", "GET"):
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable

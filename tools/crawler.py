@@ -262,7 +262,7 @@ def main():
     parser.add_argument("-l", "--login-url", help="Login page URL.")
     parser.add_argument("-u", "--username", help="Username for login.")
     parser.add_argument("-p", "--password", help="Password for login.")
-    parser.add_argument("--exclude", nargs="*", default=["png", "apng", "bmp", "gif", "ico", "cur", "jfif", "pjp", "pjpeg", "svg", "tif", "tiff", "webp", "xbm", "3gp", "aac", "flac", "mpg", "mpeg", "mp3", "mp4", "m4a", "m4v", "m4p", "oga", "ogg", "ogv", "mov", "wav", "webm", "eot", "woff", "woff2", "ttf", "otf", "css", "pdf", "zip", "avif", "js", "jpg", "jpeg"], help="File extensions to exclude (default: png, jpg, css, etc...).")
+    parser.add_argument("--exclude", nargs="*", default=["png", "apng", "bmp", "gif", "ico", "cur", "jfif", "pjp", "pjpeg", "svg", "tif", "tiff", "webp", "xbm", "3gp", "aac", "flac", "mpg", "mpeg", "mp3", "mp4", "m4a", "m4v", "m4p", "oga", "ogg", "ogv", "mov", "wav", "webm", "eot", "woff", "woff2", "ttf", "otf", "css", "pdf", "zip", "avif", "jpg", "jpeg"], help="File extensions to exclude (default: png, jpg, css, etc...).")
     args = parser.parse_args()
 
     # Register the signal handler for graceful exit

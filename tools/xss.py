@@ -79,7 +79,7 @@ async def inject_xss_payload(session, request, semaphore):
                         break
 
         # 2. POST body injection
-        elif method == "POST" and body is not None:
+        elif method in ("POST", "DELETE", "PATCH", "PUT") and body is not None:
             for payload in XSS_PAYLOADS:
                 data_to_send = None
                 json_to_send = None
@@ -105,7 +105,7 @@ async def inject_xss_payload(session, request, semaphore):
                     continue
 
         # 3. Path-based injection
-        if method in ("GET", "POST"):
+        if method in ("POST", "DELETE", "PATCH", "PUT", "GET"):
             path_parts = parsed_url.path.strip("/").split("/") if parsed_url.path.strip("/") else []
             for i, part in enumerate(path_parts):
                 if part:

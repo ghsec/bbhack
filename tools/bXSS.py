@@ -87,7 +87,7 @@ async def inject_xss_payload(session, request, semaphore):
                         break  # Stop testing further payloads for this parameter
 
         # Test POST requests with payloads
-        elif method == "POST" and body:
+        elif method in ("POST", "DELETE", "PATCH", "PUT") and body:
             for payload in XSS_PAYLOADS:
                 if isinstance(body, str):
                     # Replace payload in string bodies
@@ -137,7 +137,7 @@ async def inject_xss_payload(session, request, semaphore):
                     continue
 
         # Path-Based XSS Detection (only modify path)
-        if method == "GET" or method == "POST":
+        if method in ("GET", "POST", "DELETE", "PATCH", "PUT"):
             # Modify path parameters with XSS payloads (Do NOT modify query or body here)
             path_parts = parsed_url.path.split('/')
 

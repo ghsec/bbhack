@@ -70,7 +70,7 @@ async def inject_FPD_payload(session, request, semaphore):
                         break
 
         # --- 2. POST requests with body payloads ---
-        elif method == "POST" and body is not None:
+        elif method in ("POST", "DELETE", "PATCH", "PUT") and body is not None:
             for payload in FPD_PAYLOADS:
                 # Prepare payloaded body but do NOT set Content-Length header
                 # We'll pass either data (bytes/str) or json (dict) to httpx and let it handle length
@@ -103,7 +103,7 @@ async def inject_FPD_payload(session, request, semaphore):
                     continue
 
         # --- 3. Path-based FPD injection ---
-        if method in ("GET", "POST"):
+        if method in ("POST", "DELETE", "PATCH", "PUT", "GET"):
             # split path and preserve empty root handling
             path = parsed_url.path or "/"
             stripped = path.strip("/")
