@@ -79,7 +79,7 @@ async def inject_SQLi_payload(session, request, semaphore):
                         break
 
         # --- 2. POST requests with body payloads ---
-        elif method in ("POST", "DELETE", "PATCH", "PUT") is not None:
+        elif method in ("POST", "DELETE", "PATCH", "PUT"):
             for payload in SQLi_PAYLOADS:
                 # Prepare payloaded body but do NOT set Content-Length header
                 # We'll pass either data (bytes/str) or json (dict) to httpx and let it handle length
@@ -113,32 +113,30 @@ async def inject_SQLi_payload(session, request, semaphore):
 
         # --- 3. Path-based SQLi injection ---
         if method in ("POST", "DELETE", "PATCH", "PUT", "GET"):
-            # split path and preserve empty root handling
-            path = parsed_url.path or "/"
-            stripped = path.strip("/")
-            path_parts = stripped.split("/") if stripped != "" else []
-            # if there are no parts (root), we can still try injecting after root by adding parts
-            indices = range(len(path_parts))
-            for i, part in enumerate(path_parts):
-                if part == "":
-                    continue
-                for payload in SQLi_PAYLOADS:
-                    modified_parts = path_parts.copy()
-                    modified_parts[i] = part + payload
-                    modified_path = "/" + "/".join(modified_parts)
-                    new_url = parsed_url._replace(path=modified_path).geturl()
+            path_parts = parsed_url.path.split('/')
 
-                    try:
-                        result = await test_SQLi(session, new_url, method, headers=headers.copy())
-                        if result and result["SQLi_detected"]:
-                            result["path"] = parsed_url.path
-                            result["modified_path"] = modified_path
-                            result["payload"] = payload
-                            results.append(result)
-                            break
-                    except Exception as e:
-                        logging.error(f"Error while testing path-based SQLi payload on {new_url}: {e}")
-    return results
+            # Look for path segments that could be vulnerable
+            for i, part in enumerate(path_parts):
+                if part:  # Only modify non-empty path segments
+                    for payload in SQLi_PAYLOADS:
+                        path_parts[i] = part + payload
+                        modified_path = '/'.join(path_parts[:i] + [payload])
+                        new_url = urlparse(url)._replace(path=modified_path).geturl()
+
+                        # Send the request with the modified path
+                        try:
+                            result = await test_SQLi(session, new_url, method, headers=headers)
+                            if result and result["SQLi_detected"]:
+                                result["path"] = parsed_url.path  # Original path
+                                result["modified_path"] = modified_path  # Modified path with payload
+                                result["payload"] = payload  # The payload used
+                                results.append(result)
+                                break  # Break after detecting SQLI and move to the next request
+                        except Exception as e:
+                            logging.error(f"Error while testing path-based SQLI payload: {e}")
+                        path_parts[i] = part  # Reset path segment after testing
+
+    return results    
 
 
 async def test_SQLi(session, url, method, headers=None, data=None, json_data=None):

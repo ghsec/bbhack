@@ -119,7 +119,7 @@ async def inject_lfi_payload(session, request, semaphore):
                 for payload in LFI_PAYLOADS:
                     modified_parts = path_parts.copy()
                     modified_parts[i] = part + payload
-                    modified_path = "/" + "/".join(modified_parts)
+                    modified_path = '/'.join(path_parts[:i] + [payload])
                     new_url = parsed_url._replace(path=modified_path).geturl()
 
                     try:

@@ -186,7 +186,7 @@ async def inject_SQLI_payload(session, request, semaphore):
                     continue
 
         # Path-Based SQLI Detection (only modify path)
-        if method == "GET" or method == "POST":
+        elif method in ("POST", "DELETE", "PATCH", "PUT"):
             path_parts = parsed_url.path.split('/')
 
             # Look for path segments that could be vulnerable

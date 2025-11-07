@@ -181,12 +181,12 @@ async def inject_OSI_payload(session, request, semaphore):
             # if there are no parts (root), we can still try injecting after root by adding parts
             indices = range(len(path_parts))
             for i, part in enumerate(path_parts):
-                if part == "":
+                if part:
                     continue
                 for payload in OSI_PAYLOADS:
                     modified_parts = path_parts.copy()
                     modified_parts[i] = part + payload
-                    modified_path = "/" + "/".join(modified_parts)
+                    modified_path = '/'.join(path_parts[:i] + [payload])
                     new_url = parsed_url._replace(path=modified_path).geturl()
 
                     try:
