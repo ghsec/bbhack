@@ -31,8 +31,8 @@ echo "=========================" >> "$REPORT_FILE"
 
 # Define scan types and their corresponding payloads and matchers
 declare -A SCANS=(
-#    ["XSS"]="xss.txt injectx<injectx"
-#    ["Blind_XSS"]="Blind_XSS.txt"
+    ["XSS"]="xss.txt injectx<injectx"
+    ["Blind_XSS"]="Blind_XSS.txt"
     ["CRLF"]="crlf.txt (?m)^[Ss]et-[Cc]ookie: crlf=injection"
     ["Linux_LFI"]="lfiLinux.txt [a-zA-Z_-]{1,}:x:[0-9]{1,}:[0-9]{1,}:"
     ["Windows_LFI"]="lfiWindows.txt for 16-bit app support|\[fonts\]"
@@ -93,8 +93,10 @@ do_scan() {
     fi
 
     # Search for the matcher pattern but exclude metadata lines
-    if grep -E 'Status: [0-9]+' "$log_file" | grep -q .; then
-        echo -e "\033[31m[ALERT]\033[0m Vulnerability detected: \033[1m$scan_type\033[0m in \033[1m$file\033[0m" | tee -a "$REPORT_FILE"
+    if ! grep -Eq 'Status: [0-9]+' "$log_file"; then
+        rm -f -- "$log_file"
+    else
+       echo -e "\033[31m[ALERT]\033[0m Vulnerability detected: \033[1m$scan_type\033[0m in \033[1m$file\033[0m" | tee -a "$REPORT_FILE"
     fi
 
 
