@@ -5,31 +5,61 @@ import argparse
 import re
 
 def mark_parameters_in_headers(headers, wrap_headers, wrap_cookies):
+    # Headers that should never be wrapped
+    no_wrap_headers = {
+        "host",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-user",
+        "sec-fetch-dest",
+        "connection",
+        "content-type",
+        "priority"
+        "cookie",  # value-level wrapping only if wrap_cookies=True
+    }
+
     marked_headers = []
+
     for header in headers:
-        if ':' in header:
-            key, value = header.split(':', 1)
-            key = key.strip()
-            value = value.strip()
-            if key.lower() == "host":
-                marked_headers.append(f"{key}: {value}")
-            elif key.lower() == "cookie" and wrap_cookies:
-                cookies = [cookie.strip() for cookie in value.split(';')]
+        if ":" not in header:
+            marked_headers.append(header)
+            continue
+
+        key, value = header.split(":", 1)
+        key, value = key.strip(), value.strip()
+        lower_key = key.lower()
+
+        # Never wrap for these keys
+        if lower_key in no_wrap_headers:
+            # Special handling for cookies
+            if lower_key == "cookie" and wrap_cookies:
+                cookies = [c.strip() for c in value.split(";")]
                 marked_cookies = []
+
                 for cookie in cookies:
-                    if '=' in cookie:
-                        name, val = cookie.split('=', 1)
+                    if "=" in cookie:
+                        name, val = cookie.split("=", 1)
                         marked_cookies.append(f"{name.strip()}=§{val.strip()}§")
                     else:
-                        marked_cookies.append(cookie.strip())
+                        marked_cookies.append(cookie)
+
                 marked_headers.append(f"{key}: {'; '.join(marked_cookies)}")
-            elif wrap_headers:
-                marked_headers.append(f"{key}: §{value}§")
             else:
                 marked_headers.append(f"{key}: {value}")
+
+            continue
+
+        # Normal wrapping for other headers
+        if wrap_headers:
+            marked_headers.append(f"{key}: §{value}§")
         else:
-            marked_headers.append(header)
+            marked_headers.append(f"{key}: {value}")
+
     return marked_headers
+
 
 def mark_parameters_in_url(url, wrap_path, wrap_query):
     if '?' in url and wrap_query:
@@ -126,11 +156,11 @@ def main():
     parser = argparse.ArgumentParser(description="Mark raw request parameters with §")
     parser.add_argument("-p", "--path", required=True, help="Input directory containing raw request files")
     parser.add_argument("-o", "--output", required=True, help="Output directory to save modified request files")
-    parser.add_argument("-wp", "--wrap-path", action="store_false", help="Wrap only paths")
+    parser.add_argument("-wp", "--wrap-path", action="store_true", help="Wrap only paths")
     parser.add_argument("-wc", "--wrap-cookie", action="store_true", help="Wrap only cookies")
     parser.add_argument("-wh", "--wrap-header", action="store_true", help="Wrap only headers")
-    parser.add_argument("-wq", "--wrap-query", action="store_false", help="Wrap only query parameters")
-    parser.add_argument("-wb", "--wrap-body", action="store_false", help="Wrap only body parameters")
+    parser.add_argument("-wq", "--wrap-query", action="store_true", help="Wrap only query parameters")
+    parser.add_argument("-wb", "--wrap-body", action="store_true", help="Wrap only body parameters")
 
     args = parser.parse_args()
 
